@@ -1,7 +1,7 @@
 name: duraq
 description: A durable queuing system implemented in Dart
 version: 0.0.1
-homepage: https://github.com/yourusername/duraq
+homepage: https://github.com/stephanfeb/duraq
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
