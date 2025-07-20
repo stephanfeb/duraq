@@ -1,0 +1,29 @@
+# Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Test files
+coverage/
+test/**/*.db
+test/**/*.db-shm
+test/**/*.db-wal
+
+# SQLite files
+*.db
+*.db-shm
+*.db-wal
+
+# Documentation
+doc/api/
+
+# Temporary files
+.DS_Store
+*.log
+*.tmp 
