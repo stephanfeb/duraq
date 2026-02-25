@@ -43,18 +43,14 @@ void main() {
       final lockId = await lock.tryAcquire('test-queue', 'entry-1');
       expect(lockId, isNotNull);
 
-      final released = await lock.release('test-queue', 'entry-1', lockId!);
+      final released = await lock.release('test-queue', 'entry-1');
       expect(released, isTrue);
       expect(await lock.isLocked('test-queue', 'entry-1'), isFalse);
     });
 
-    test('should not release lock with wrong lock ID', () async {
-      final lockId = await lock.tryAcquire('test-queue', 'entry-1');
-      expect(lockId, isNotNull);
-
-      final released = await lock.release('test-queue', 'entry-1', 'wrong-id');
+    test('should not release lock for unlocked entry', () async {
+      final released = await lock.release('test-queue', 'nonexistent');
       expect(released, isFalse);
-      expect(await lock.isLocked('test-queue', 'entry-1'), isTrue);
     });
 
     test('should cleanup expired locks', () async {

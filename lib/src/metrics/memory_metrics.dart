@@ -5,11 +5,11 @@ import 'queue_metrics.dart';
 
 /// In-memory implementation of QueueMetrics
 class MemoryQueueMetrics implements QueueMetrics {
-  final _latencyMetrics = <String, List<MetricValue>>{};
-  final _throughputMetrics = <String, List<MetricValue>>{};
-  final _errorMetrics = <String, List<MetricValue>>{};
-  final _queueSizeMetrics = <String, List<MetricValue>>{};
-  final _processingTimeMetrics = <String, List<MetricValue>>{};
+  final _latencyMetrics = <String, ListQueue<MetricValue>>{};
+  final _throughputMetrics = <String, ListQueue<MetricValue>>{};
+  final _errorMetrics = <String, ListQueue<MetricValue>>{};
+  final _queueSizeMetrics = <String, ListQueue<MetricValue>>{};
+  final _processingTimeMetrics = <String, ListQueue<MetricValue>>{};
 
   /// Default window for metrics calculations
   static const defaultWindow = Duration(minutes: 5);
@@ -72,11 +72,11 @@ class MemoryQueueMetrics implements QueueMetrics {
   void recordProcessingTime(QueueEntry entry, Duration duration) {
     _addMetric(
       _processingTimeMetrics,
-      entry.id,
+      'processing',
       MetricValue(
         value: duration.inMicroseconds.toDouble(),
         timestamp: DateTime.now(),
-        labels: {'queue': entry.id},
+        labels: {'entryId': entry.id},
       ),
     );
   }
@@ -128,8 +128,7 @@ class MemoryQueueMetrics implements QueueMetrics {
 
   @override
   Future<Duration> getAverageProcessingTime({Duration? window}) async {
-    final allMetrics = _processingTimeMetrics.values.expand((m) => m).toList();
-    final metrics = _getMetricsInWindow(allMetrics, window ?? defaultWindow);
+    final metrics = _getMetricsInWindow(_processingTimeMetrics['processing'], window ?? defaultWindow);
     if (metrics.isEmpty) return Duration.zero;
 
     final average = metrics.map((m) => m.value).reduce((a, b) => a + b) / metrics.length;
@@ -152,21 +151,21 @@ class MemoryQueueMetrics implements QueueMetrics {
 
   /// Adds a metric to the specified collection
   void _addMetric(
-    Map<String, List<MetricValue>> metrics,
+    Map<String, ListQueue<MetricValue>> metrics,
     String key,
     MetricValue value,
   ) {
-    final list = metrics.putIfAbsent(key, () => []);
-    list.add(value);
+    final queue = metrics.putIfAbsent(key, () => ListQueue());
+    queue.add(value);
 
     // Remove old metrics if we exceed the maximum
-    if (list.length > maxMetricsPerOperation) {
-      list.removeRange(0, list.length - maxMetricsPerOperation);
+    while (queue.length > maxMetricsPerOperation) {
+      queue.removeFirst();
     }
   }
 
   /// Gets metrics within the specified time window
-  List<MetricValue> _getMetricsInWindow(List<MetricValue>? metrics, Duration window) {
+  List<MetricValue> _getMetricsInWindow(ListQueue<MetricValue>? metrics, Duration window) {
     if (metrics == null) return [];
 
     final cutoff = DateTime.now().subtract(window);

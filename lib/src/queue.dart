@@ -6,6 +6,8 @@ import 'storage/storage_interface.dart';
 
 /// A type-safe queue implementation
 class Queue<T> {
+  static const _uuid = Uuid();
+
   /// The name of this queue
   final String name;
 
@@ -80,6 +82,7 @@ class Queue<T> {
           entry.id,
           EntryStatus.deadLetter,
           errorMessage: error,
+          attempts: attempts,
         );
       } else {
         await _storage.updateEntryStatus(
@@ -87,6 +90,7 @@ class Queue<T> {
           entry.id,
           EntryStatus.failed,
           errorMessage: error,
+          attempts: attempts,
         );
       }
       return;
@@ -101,6 +105,7 @@ class Queue<T> {
       EntryStatus.pending,
       errorMessage: error,
       nextRetryAt: nextRetry,
+      attempts: attempts,
     );
   }
 
@@ -109,6 +114,6 @@ class Queue<T> {
 
   /// Generates a unique ID for a queue entry
   String _generateId() {
-    return const Uuid().v4();
+    return _uuid.v4();
   }
 }

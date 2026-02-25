@@ -110,6 +110,30 @@ class SQLiteStorage implements StorageInterface {
     }
   }
 
+  /// Converts a database row to a QueueEntry.
+  /// If [statusOverride] is provided, it is used instead of the row's status.
+  QueueEntry<T> _rowToEntry<T>(Row row, {EntryStatus? statusOverride}) {
+    return QueueEntry<T>(
+      id: row['id'] as String,
+      data: jsonDecode(row['data'] as String) as T,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+      lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+      attempts: row['attempts'] as int,
+      priority: row['priority'] as int,
+      status: statusOverride ?? EntryStatus.values.byName(row['status'] as String),
+      errorMessage: row['error_message'] as String?,
+      expiresAt: row['expires_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
+          : null,
+      nextRetryAt: row['next_retry_at'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
+          : null,
+      scheduledFor: row['scheduled_for'] != null
+          ? DateTime.fromMillisecondsSinceEpoch(row['scheduled_for'] as int)
+          : null,
+    );
+  }
+
   @override
   Future<void> beginTransaction() async {
     _checkDisposed();
@@ -207,7 +231,7 @@ class SQLiteStorage implements StorageInterface {
       [
         entry.id,
         queueName,
-        jsonEncode({'data': entry.data}),
+        jsonEncode(entry.data),
         entry.createdAt.millisecondsSinceEpoch,
         entry.lastUpdatedAt.millisecondsSinceEpoch,
         entry.expiresAt?.millisecondsSinceEpoch,
@@ -242,11 +266,11 @@ class SQLiteStorage implements StorageInterface {
     // First, mark expired entries
     _db.execute(
       '''
-      UPDATE queue_entries 
+      UPDATE queue_entries
       SET status = ?, updated_at = ?
-      WHERE queue_name = ? 
+      WHERE queue_name = ?
       AND status = ?
-      AND expires_at IS NOT NULL 
+      AND expires_at IS NOT NULL
       AND expires_at <= ?
       ''',
       [
@@ -258,76 +282,64 @@ class SQLiteStorage implements StorageInterface {
       ],
     );
 
-    // Find the next available entry
-    final result = _db.select(
-      '''
-      SELECT * FROM queue_entries
-      WHERE queue_name = ? 
-      AND status = ?
-      AND (expires_at IS NULL OR expires_at > ?)
-      AND (scheduled_for IS NULL OR scheduled_for <= ?)
-      ORDER BY priority ASC, created_at ASC
-      LIMIT 1
-      ''',
-      [
+    // Iterate through candidates until we acquire a lock on one
+    var offset = 0;
+    while (true) {
+      final result = _db.select(
+        '''
+        SELECT * FROM queue_entries
+        WHERE queue_name = ?
+        AND status = ?
+        AND (expires_at IS NULL OR expires_at > ?)
+        AND (scheduled_for IS NULL OR scheduled_for <= ?)
+        ORDER BY priority ASC, created_at ASC
+        LIMIT 1 OFFSET ?
+        ''',
+        [
+          queueName,
+          EntryStatus.pending.name,
+          now,
+          now,
+          offset,
+        ],
+      );
+
+      if (result.isEmpty) {
+        return null;
+      }
+
+      final row = result.first;
+      final entryId = row['id'] as String;
+
+      // Try to acquire a lock on the entry
+      final lockId = await _lock.tryAcquire(
         queueName,
-        EntryStatus.pending.name,
-        now,
-        now,
-      ],
-    );
-
-    if (result.isEmpty) {
-      return null;
-    }
-
-    final row = result.first;
-    final entryId = row['id'] as String;
-
-    // Try to acquire a lock on the entry
-    final lockId = await _lock.tryAcquire(
-      queueName,
-      entryId,
-      lockDuration: defaultLockDuration,
-    );
-
-    // If we couldn't acquire the lock, try the next entry
-    if (lockId == null) {
-      return _retrieveInternal(queueName);
-    }
-
-    final data = jsonDecode(row['data'] as String)['data'];
-    
-    // Update the entry status to processing
-    _db.execute(
-      '''
-      UPDATE queue_entries 
-      SET status = ?, updated_at = ?
-      WHERE id = ?
-      ''',
-      [
-        EntryStatus.processing.name,
-        now,
         entryId,
-      ],
-    );
+        lockDuration: defaultLockDuration,
+      );
 
-    return QueueEntry(
-      id: entryId,
-      data: data,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-      lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-      attempts: row['attempts'] as int,
-      priority: row['priority'] as int,
-      status: EntryStatus.processing,
-      errorMessage: row['error_message'] as String?,
-      expiresAt: row['expires_at'] != null 
-        ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
-        : null,
-      nextRetryAt: row['next_retry_at'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
-        : null,
-    );
+      // If we couldn't acquire the lock, try the next entry
+      if (lockId == null) {
+        offset++;
+        continue;
+      }
+
+      // Update the entry status to processing
+      _db.execute(
+        '''
+        UPDATE queue_entries
+        SET status = ?, updated_at = ?
+        WHERE id = ?
+        ''',
+        [
+          EntryStatus.processing.name,
+          now,
+          entryId,
+        ],
+      );
+
+      return _rowToEntry(row, statusOverride: EntryStatus.processing);
+    }
   }
 
   /// Removes expired entries from the queue
@@ -435,29 +447,49 @@ class SQLiteStorage implements StorageInterface {
     EntryStatus status, {
     String? errorMessage,
     DateTime? nextRetryAt,
+    int? attempts,
   }) async {
     _checkDisposed();
 
     // Release the lock if the entry is completed or failed
     if (status == EntryStatus.completed || status == EntryStatus.failed) {
-      await _lock.release(queueName, entryId, '${queueName}_${entryId}_*');
+      await _lock.release(queueName, entryId);
     }
 
-    _db.execute(
-      '''
-      UPDATE queue_entries 
-      SET status = ?, updated_at = ?, error_message = ?, next_retry_at = ?
-      WHERE queue_name = ? AND id = ?
-      ''',
-      [
-        status.name,
-        DateTime.now().millisecondsSinceEpoch,
-        errorMessage,
-        nextRetryAt?.millisecondsSinceEpoch,
-        queueName,
-        entryId,
-      ],
-    );
+    if (attempts != null) {
+      _db.execute(
+        '''
+        UPDATE queue_entries
+        SET status = ?, updated_at = ?, error_message = ?, next_retry_at = ?, attempts = ?
+        WHERE queue_name = ? AND id = ?
+        ''',
+        [
+          status.name,
+          DateTime.now().millisecondsSinceEpoch,
+          errorMessage,
+          nextRetryAt?.millisecondsSinceEpoch,
+          attempts,
+          queueName,
+          entryId,
+        ],
+      );
+    } else {
+      _db.execute(
+        '''
+        UPDATE queue_entries
+        SET status = ?, updated_at = ?, error_message = ?, next_retry_at = ?
+        WHERE queue_name = ? AND id = ?
+        ''',
+        [
+          status.name,
+          DateTime.now().millisecondsSinceEpoch,
+          errorMessage,
+          nextRetryAt?.millisecondsSinceEpoch,
+          queueName,
+          entryId,
+        ],
+      );
+    }
   }
 
   /// Retrieves all entries with a specific status from a queue
@@ -474,18 +506,7 @@ class SQLiteStorage implements StorageInterface {
       [queueName, status.name],
     );
 
-    return result.map((row) {
-      final data = jsonDecode(row['data'] as String)['data'];
-      return QueueEntry(
-        id: row['id'] as String,
-        data: data,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-        attempts: row['attempts'] as int,
-        priority: row['priority'] as int,
-        status: status,
-        errorMessage: row['error_message'] as String?,
-      );
-    }).toList();
+    return result.map((row) => _rowToEntry(row, statusOverride: status)).toList();
   }
 
   /// Disposes of the storage
@@ -522,25 +543,7 @@ class SQLiteStorage implements StorageInterface {
     );
 
     if (result.isEmpty) return null;
-
-    final row = result.first;
-    final data = jsonDecode(row['data'] as String)['data'];
-    return QueueEntry<T>(
-      id: row['id'] as String,
-      data: data as T,
-      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-      lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-      attempts: row['attempts'] as int,
-      priority: row['priority'] as int,
-      status: EntryStatus.deadLetter,
-      errorMessage: row['error_message'] as String?,
-      expiresAt: row['expires_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
-          : null,
-      nextRetryAt: row['next_retry_at'] != null
-          ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
-          : null,
-    );
+    return _rowToEntry<T>(result.first);
   }
 
   @override
@@ -565,25 +568,7 @@ class SQLiteStorage implements StorageInterface {
       ],
     );
 
-    return result.map((row) {
-      final data = jsonDecode(row['data'] as String)['data'];
-      return QueueEntry<T>(
-        id: row['id'] as String,
-        data: data as T,
-        createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-        lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-        attempts: row['attempts'] as int,
-        priority: row['priority'] as int,
-        status: EntryStatus.deadLetter,
-        errorMessage: row['error_message'] as String?,
-        expiresAt: row['expires_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
-            : null,
-        nextRetryAt: row['next_retry_at'] != null
-            ? DateTime.fromMillisecondsSinceEpoch(row['next_retry_at'] as int)
-            : null,
-      );
-    }).toList();
+    return result.map((row) => _rowToEntry<T>(row)).toList();
   }
 
   @override
@@ -603,7 +588,7 @@ class SQLiteStorage implements StorageInterface {
       _db.execute(
         '''
         UPDATE queue_entries
-        SET status = ?, updated_at = ?, next_retry_at = NULL
+        SET status = ?, updated_at = ?, next_retry_at = NULL, attempts = 0
         WHERE queue_name = ? AND id = ?
         ''',
         [
@@ -679,27 +664,12 @@ class SQLiteStorage implements StorageInterface {
       '''
       SELECT * FROM queue_entries 
       WHERE queue_name = ?
-      ORDER BY priority DESC, created_at ASC
+      ORDER BY priority ASC, created_at ASC
       ''',
       [queueName],
     );
     
-    return result.map((row) => QueueEntry(
-      id: row['id'] as String,
-      data: jsonDecode(row['data'] as String)['data'],
-      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-      lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-      expiresAt: row['expires_at'] != null 
-        ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
-        : null,
-      scheduledFor: row['scheduled_for'] != null
-        ? DateTime.fromMillisecondsSinceEpoch(row['scheduled_for'] as int)
-        : null,
-      attempts: row['attempts'] as int,
-      priority: row['priority'] as int,
-      status: EntryStatus.values.byName(row['status'] as String),
-      errorMessage: row['error_message'] as String?,
-    )).toList();
+    return result.map((row) => _rowToEntry(row)).toList();
   }
 
   @override

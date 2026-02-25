@@ -155,14 +155,8 @@ class HealthCheckAggregator {
   HealthCheckAggregator(this.checks);
 
   Future<Map<String, HealthCheckResult>> checkAll() async {
-    final results = <String, HealthCheckResult>{};
-    
-    for (final check in checks) {
-      final result = await check.check();
-      results[result.component] = result;
-    }
-
-    return results;
+    final checkResults = await Future.wait(checks.map((check) => check.check()));
+    return {for (final result in checkResults) result.component: result};
   }
 
   Future<HealthStatus> getOverallStatus() async {

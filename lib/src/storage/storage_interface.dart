@@ -39,6 +39,7 @@ abstract class StorageInterface {
     EntryStatus status, {
     String? errorMessage,
     DateTime? nextRetryAt,
+    int? attempts,
   });
 
   /// Retrieves a dead letter entry from a queue

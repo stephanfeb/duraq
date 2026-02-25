@@ -69,6 +69,24 @@ class IsarStorage implements StorageInterface {
     }
   }
 
+  /// Converts a QueueEntryCollection to a QueueEntry.
+  /// If [statusOverride] is provided, it is used instead of the collection's status.
+  QueueEntry<T> _collectionToEntry<T>(QueueEntryCollection entry, {EntryStatus? statusOverride}) {
+    return QueueEntry<T>(
+      id: entry.entryId,
+      data: jsonDecode(entry.data) as T,
+      createdAt: entry.createdAt,
+      lastUpdatedAt: entry.lastUpdatedAt,
+      attempts: entry.attempts,
+      priority: entry.priority,
+      status: statusOverride ?? entry.status,
+      errorMessage: entry.errorMessage,
+      expiresAt: entry.expiresAt,
+      nextRetryAt: entry.nextRetryAt,
+      scheduledFor: entry.scheduledFor,
+    );
+  }
+
   @override
   Future<void> beginTransaction() async {
     _checkDisposed();
@@ -137,7 +155,7 @@ class IsarStorage implements StorageInterface {
       final entryCollection = QueueEntryCollection()
         ..entryId = entry.id
         ..queueName = queueName
-        ..data = jsonEncode({'data': entry.data})
+        ..data = jsonEncode(entry.data)
         ..createdAt = entry.createdAt
         ..lastUpdatedAt = entry.lastUpdatedAt
         ..expiresAt = entry.expiresAt
@@ -176,68 +194,63 @@ class IsarStorage implements StorageInterface {
         .and()
         .expiresAtLessThan(now)
         .findAll();
-    
+
     for (final entry in expiredEntries) {
       entry.status = EntryStatus.expired;
       entry.lastUpdatedAt = now;
       await _isar.queueEntryCollections.put(entry);
     }
 
-    // Find the next available entry
-    final entryCollection = await _isar.queueEntryCollections
-        .filter()
-        .queueNameEqualTo(queueName)
-        .and()
-        .statusEqualTo(EntryStatus.pending)
-        .and()
-        .group((q) => q
-            .expiresAtIsNull()
-            .or()
-            .expiresAtGreaterThan(now))
-        .and()
-        .group((q) => q
-            .scheduledForIsNull()
-            .or()
-            .scheduledForLessThan(now, include: true))
-        .sortByPriority()
-        .thenByCreatedAt()
-        .findFirst();
+    // Iterate through candidates until we acquire a lock on one
+    var offset = 0;
+    while (true) {
+      final candidates = await _isar.queueEntryCollections
+          .filter()
+          .queueNameEqualTo(queueName)
+          .and()
+          .statusEqualTo(EntryStatus.pending)
+          .and()
+          .group((q) => q
+              .expiresAtIsNull()
+              .or()
+              .expiresAtGreaterThan(now))
+          .and()
+          .group((q) => q
+              .scheduledForIsNull()
+              .or()
+              .scheduledForLessThan(now, include: true))
+          .sortByPriority()
+          .thenByCreatedAt()
+          .offset(offset)
+          .limit(1)
+          .findAll();
 
-    if (entryCollection == null) {
-      return null;
+      if (candidates.isEmpty) {
+        return null;
+      }
+
+      final entryCollection = candidates.first;
+
+      // Try to acquire a lock on the entry
+      final lockId = await _lock.tryAcquire(
+        queueName,
+        entryCollection.entryId,
+        lockDuration: defaultLockDuration,
+      );
+
+      // If we couldn't acquire the lock, try the next entry
+      if (lockId == null) {
+        offset++;
+        continue;
+      }
+
+      // Update the entry status to processing
+      entryCollection.status = EntryStatus.processing;
+      entryCollection.lastUpdatedAt = now;
+      await _isar.queueEntryCollections.put(entryCollection);
+
+      return _collectionToEntry(entryCollection);
     }
-
-    // Try to acquire a lock on the entry
-    final lockId = await _lock.tryAcquire(
-      queueName,
-      entryCollection.entryId,
-      lockDuration: defaultLockDuration,
-    );
-
-    // If we couldn't acquire the lock, try the next entry
-    if (lockId == null) {
-      return _retrieveInternal(queueName);
-    }
-
-    final data = jsonDecode(entryCollection.data)['data'];
-    
-    // Update the entry status to processing
-    entryCollection.status = EntryStatus.processing;
-    entryCollection.lastUpdatedAt = now;
-    await _isar.queueEntryCollections.put(entryCollection);
-
-    return QueueEntry(
-      id: entryCollection.entryId,
-      data: data,
-      createdAt: entryCollection.createdAt,
-      lastUpdatedAt: entryCollection.lastUpdatedAt,
-      attempts: entryCollection.attempts,
-      priority: entryCollection.priority,
-      status: EntryStatus.processing,
-      errorMessage: entryCollection.errorMessage,
-      expiresAt: entryCollection.expiresAt,
-      nextRetryAt: entryCollection.nextRetryAt,
-    );
   }
 
   /// Removes expired entries from the queue
@@ -340,12 +353,13 @@ class IsarStorage implements StorageInterface {
     EntryStatus status, {
     String? errorMessage,
     DateTime? nextRetryAt,
+    int? attempts,
   }) async {
     _checkDisposed();
 
     // Release the lock if the entry is completed or failed
     if (status == EntryStatus.completed || status == EntryStatus.failed) {
-      await _lock.release(queueName, entryId, '${queueName}_${entryId}_*');
+      await _lock.release(queueName, entryId);
     }
 
     await _isar.writeTxn(() async {
@@ -361,6 +375,9 @@ class IsarStorage implements StorageInterface {
         entry.lastUpdatedAt = DateTime.now();
         entry.errorMessage = errorMessage;
         entry.nextRetryAt = nextRetryAt;
+        if (attempts != null) {
+          entry.attempts = attempts;
+        }
         await _isar.queueEntryCollections.put(entry);
       }
     });
@@ -380,21 +397,7 @@ class IsarStorage implements StorageInterface {
         .thenByCreatedAt()
         .findAll();
 
-    return entries.map((entry) {
-      final data = jsonDecode(entry.data)['data'];
-      return QueueEntry(
-        id: entry.entryId,
-        data: data,
-        createdAt: entry.createdAt,
-        lastUpdatedAt: entry.lastUpdatedAt,
-        attempts: entry.attempts,
-        priority: entry.priority,
-        status: status,
-        errorMessage: entry.errorMessage,
-        expiresAt: entry.expiresAt,
-        nextRetryAt: entry.nextRetryAt,
-      );
-    }).toList();
+    return entries.map((entry) => _collectionToEntry(entry, statusOverride: status)).toList();
   }
 
   /// Disposes of the storage
@@ -425,20 +428,7 @@ class IsarStorage implements StorageInterface {
         .findFirst();
 
     if (entry == null) return null;
-
-    final data = jsonDecode(entry.data)['data'];
-    return QueueEntry<T>(
-      id: entry.entryId,
-      data: data as T,
-      createdAt: entry.createdAt,
-      lastUpdatedAt: entry.lastUpdatedAt,
-      attempts: entry.attempts,
-      priority: entry.priority,
-      status: EntryStatus.deadLetter,
-      errorMessage: entry.errorMessage,
-      expiresAt: entry.expiresAt,
-      nextRetryAt: entry.nextRetryAt,
-    );
+    return _collectionToEntry<T>(entry);
   }
 
   @override
@@ -458,21 +448,7 @@ class IsarStorage implements StorageInterface {
         .limit(limit ?? 100)
         .findAll();
 
-    return entries.map((entry) {
-      final data = jsonDecode(entry.data)['data'];
-      return QueueEntry<T>(
-        id: entry.entryId,
-        data: data as T,
-        createdAt: entry.createdAt,
-        lastUpdatedAt: entry.lastUpdatedAt,
-        attempts: entry.attempts,
-        priority: entry.priority,
-        status: EntryStatus.deadLetter,
-        errorMessage: entry.errorMessage,
-        expiresAt: entry.expiresAt,
-        nextRetryAt: entry.nextRetryAt,
-      );
-    }).toList();
+    return entries.map((entry) => _collectionToEntry<T>(entry)).toList();
   }
 
   @override
@@ -492,6 +468,7 @@ class IsarStorage implements StorageInterface {
         entry.status = EntryStatus.pending;
         entry.lastUpdatedAt = DateTime.now();
         entry.nextRetryAt = null;
+        entry.attempts = 0;
         await _isar.queueEntryCollections.put(entry);
       }
     });
@@ -563,19 +540,7 @@ class IsarStorage implements StorageInterface {
         .thenByCreatedAt()
         .findAll();
     
-    return entries.map((entry) => QueueEntry(
-      id: entry.entryId,
-      data: jsonDecode(entry.data)['data'],
-      createdAt: entry.createdAt,
-      lastUpdatedAt: entry.lastUpdatedAt,
-      expiresAt: entry.expiresAt,
-      scheduledFor: entry.scheduledFor,
-      attempts: entry.attempts,
-      priority: entry.priority,
-      status: entry.status,
-      errorMessage: entry.errorMessage,
-      nextRetryAt: entry.nextRetryAt,
-    )).toList();
+    return entries.map((entry) => _collectionToEntry(entry)).toList();
   }
 
   @override

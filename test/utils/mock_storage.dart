@@ -112,6 +112,7 @@ class MockStorage implements StorageInterface {
     EntryStatus status, {
     String? errorMessage,
     DateTime? nextRetryAt,
+    int? attempts,
   }) async {
     final queue = _queues[queueName];
     if (queue != null) {
@@ -123,7 +124,7 @@ class MockStorage implements StorageInterface {
           errorMessage: errorMessage,
           nextRetryAt: nextRetryAt,
           lastUpdatedAt: DateTime.now(),
-          attempts: status == EntryStatus.deadLetter ? entry.attempts + 1 : entry.attempts,
+          attempts: attempts ?? entry.attempts,
         );
       }
     }
@@ -189,7 +190,7 @@ class MockStorage implements StorageInterface {
         queue[index] = entry.copyWith(
           status: EntryStatus.pending,
           lastUpdatedAt: DateTime.now(),
-          nextRetryAt: null,
+          attempts: 0,
         );
       }
     }

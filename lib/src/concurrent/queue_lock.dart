@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:sqlite3/sqlite3.dart';
 
 /// Represents a lock on a queue entry
@@ -74,16 +73,15 @@ class QueueLock {
     }
   }
 
-  /// Releases a lock by its ID
-  Future<bool> release(String queueName, String entryId, String lockId) async {
+  /// Releases a lock on an entry
+  Future<bool> release(String queueName, String entryId) async {
     final stmt = _db.prepare('''
       DELETE FROM $_tableName
       WHERE queue_name = ?
       AND entry_id = ?
-      AND lock_id = ?
     ''');
     try {
-      stmt.execute([queueName, entryId, lockId]);
+      stmt.execute([queueName, entryId]);
       final changes = _db.getUpdatedRows();
       return changes > 0;
     } finally {
@@ -138,4 +136,4 @@ class QueueLock {
       stmt.dispose();
     }
   }
-} 
+}

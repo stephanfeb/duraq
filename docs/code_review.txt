@@ -1,0 +1,59 @@
+ - Immutable QueueEntry model with copyWith (good pattern)
+  - Proper use of indexes in SQLite schema
+  - Sensible feature layering (retry, dead letter, metrics, health checks)
+
+  Weaknesses:
+
+  - StorageInterface is too fat. It mixes core queue CRUD, transaction management, dead letter operations, and health checks into one 71-line interface. Any new storage backend must implement ~17 methods. The dead letter
+  operations could be separated or composed.
+  - Inconsistent dispose patterns. SQLiteStorage.dispose() is sync (returns void), while IsarStorage.dispose() is async (returns Future<void>). Neither is declared on StorageInterface, so there's no polymorphic way to
+  clean up storage. QueueManager has no dispose() method at all.
+  - QueueManager.queue<T>() is type-unsafe at runtime (queue_manager.dart:13-16). The first call to queue<String>('orders') creates a Queue<String>. A subsequent call to queue<int>('orders') returns the cached
+  Queue<String> and casts it to Queue<int>, which will throw a runtime cast error. There's no type safety guard.
+  - Queue has no access to DeadLetterQueue, QueueLock, or QueueMetrics. These are separate classes that users must compose manually. This means the core Queue class can't leverage metrics or expose its dead letter queue —
+  the feature set feels fragmented.
+  - retrieveAll sort order is inconsistent. In sqlite_storage.dart:682 it sorts ORDER BY priority DESC, while retrieve at line 269 sorts ORDER BY priority ASC. The QueueEntry docs say "lower is higher priority", so
+  retrieve is correct but retrieveAll is backwards.
+
+  4. Code Smells
+
+  ┌────────────────────────────────────────────────────┬──────────────────────────────────────┬──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                       Smell                        │               Location               │                                                         Details                                                          │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Uuid allocation per call                           │ queue.dart:112                       │ const Uuid().v4() creates a new Uuid parser each time. Should be a static const field.                                   │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Massive row-to-entry duplication                   │ sqlite_storage.dart                  │ The same JSON decode + QueueEntry() construction appears in _retrieveInternal, retrieveDeadLetter, listDeadLetters,      │
+  │                                                    │                                      │ getEntriesByStatus, retrieveAll — 5 nearly identical blocks. Should be a _rowToEntry() helper.                           │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Same duplication in Isar                           │ isar_storage.dart                    │ Identical QueueEntryCollection -> QueueEntry mapping repeated 5+ times.                                                  │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ Unused dart:async import                           │ queue_lock.dart:1                    │ dart:async is imported but never used.                                                                                   │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ data stored as JSON-wrapped                        │ sqlite_storage.dart:210              │ Data is encoded as {'data': entry.data} then decoded with ['data']. This wrapper object adds complexity for no benefit — │
+  │                                                    │                                      │  just encode entry.data directly.                                                                                        │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ HealthCheckAggregator.checkAll() runs sequentially │ health_check.dart:160                │ Health checks run in a for loop. Since they're independent, they should use Future.wait() for parallel execution.        │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ MemoryQueueMetrics._processingTimeMetrics keyed by │ memory_metrics.dart:72-82            │ Each entry gets its own list. This means getAverageProcessingTime must expand across all keys, and old entries are never │
+  │  entry ID                                          │                                      │  cleaned up per-key (only per-list). Metrics should be keyed by queue name, not entry ID.                                │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ _addMetric uses List not Queue                     │ memory_metrics.dart:154-166          │ removeRange(0, ...) on a List is O(n). A ListQueue (circular buffer) would be O(1) for this eviction pattern.            │
+  ├────────────────────────────────────────────────────┼──────────────────────────────────────┼──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │ retryDeadLetter doesn't reset attempts             │ sqlite_storage.dart:603,             │ When moving a dead letter entry back to pending, attempts keeps its old value. The entry will immediately fail retry     │
+  │                                                    │ isar_storage.dart:492                │ checks again.                                                                                                            │
+  └────────────────────────────────────────────────────┴──────────────────────────────────────┴──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+  Summary
+
+  DuraQ has a solid foundation and a well-thought-out feature set. The architecture is clean at a high level. The most pressing issues are:
+
+  1. Bug: Lock release wildcard doesn't work — locks accumulate until they expire
+  2. Bug: attempts never incremented in storage — retry exhaustion is broken
+  3. Bug: retrieveAll sorts priority backwards
+  4. Risk: Unbounded recursion in _retrieveInternal
+  5. Design: Fake transaction support in Isar — gives false ACID guarantees
+  6. Design: Metrics infrastructure is disconnected from the core queue
+
+  The supporting features (health checks, metrics, dead letter) are well-structured but feel like they were designed in isolation and never integrated back into the core Queue workflow. Wiring them together and fixing the
+  bugs above would make this production-ready.
+

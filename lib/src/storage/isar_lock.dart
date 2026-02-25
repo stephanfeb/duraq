@@ -51,27 +51,19 @@ class IsarQueueLock {
     }
   }
 
-  /// Releases a lock by its ID
-  Future<bool> release(String queueName, String entryId, String lockId) async {
+  /// Releases a lock on an entry
+  Future<bool> release(String queueName, String entryId) async {
     try {
-      late bool deleted;
+      late int deletedCount;
       await _isar.writeTxn(() async {
-        final lock = await _isar.queueLockCollections
+        deletedCount = await _isar.queueLockCollections
             .filter()
             .queueNameEqualTo(queueName)
             .and()
             .entryIdEqualTo(entryId)
-            .and()
-            .lockIdEqualTo(lockId)
-            .findFirst();
-
-        if (lock != null) {
-          deleted = await _isar.queueLockCollections.delete(lock.id);
-        } else {
-          deleted = false;
-        }
+            .deleteAll();
       });
-      return deleted;
+      return deletedCount > 0;
     } catch (e) {
       return false;
     }
