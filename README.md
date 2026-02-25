@@ -28,23 +28,23 @@ void main() async {
   // Initialize storage
   final dbPath = path.join(Directory.current.path, 'queue.db');
   final storage = SQLiteStorage(dbPath: dbPath);
-  
+
   // Create queue manager
   final manager = QueueManager(storage);
-  
+
   // Get a typed queue
   final emailQueue = manager.queue<String>('emails');
-  
+
   try {
     // Enqueue items
     await emailQueue.enqueue('Welcome email to user@example.com');
-    
+
     // Process items
     final email = await emailQueue.dequeue();
     if (email != null) {
       await processEmail(email);
     }
-    
+
     // Check queue status
     final remaining = await emailQueue.length;
     print('Remaining emails: $remaining');
@@ -63,12 +63,13 @@ void main() async {
 - **Entry Tracking**: Monitor attempts, creation time, and status
 - **Transaction Support**: Atomic operations with nested transaction support
 - **Retry Policies**: Configurable retry strategies with exponential backoff
-- **Priority Support**: Priority-based queue processing
+- **Priority Support**: Priority-based queue processing (lower value = higher priority)
 - **TTL Support**: Automatic entry expiration
 - **Scheduled Execution**: Delay processing until a specific time
-- **Extensible**: Custom storage backend support
-
-[View Full Features Documentation](features.md)
+- **Dead Letter Queue**: Automatic handling of permanently failed entries
+- **Health Checks**: Monitor storage, metrics, and queue health
+- **Concurrent Processing**: Entry-level locking for safe multi-consumer access
+- **Extensible**: Custom storage backend support via `StorageInterface`
 
 ## Storage Backends
 
@@ -83,7 +84,7 @@ Features:
 - Automatic schema management
 - FIFO guarantee
 - Data integrity
-- Transaction support
+- Transaction support with savepoints
 - Priority-based retrieval
 - TTL support
 
@@ -110,21 +111,18 @@ await isar.close(); // Caller closes Isar
 Features:
 - High-performance NoSQL database
 - Persistent across restarts
-- ACID compliant with automatic transactions
 - Native indexing for better performance
 - Type-safe queries
-- Automatic schema migration
 - Cross-platform support
-- Real-time query capabilities
 - Memory efficient with lazy loading
-- Built-in compression
 - **Shared Isar instance support** - allows multiple components to use the same database
 - **External lifecycle management** - caller controls when to open/close the database
 
+> **Note**: Isar's transaction support in DuraQ is compatibility-tracked (depth counter) rather than true nested transactions. Individual Isar write operations are atomic via `writeTxn`, but the `beginTransaction`/`commitTransaction` API does not provide the same ACID guarantees as SQLite's savepoint-based transactions.
+
 ### Upcoming Storage Options
 - File system storage
-- Memory storage
-- Custom storage implementations
+- Custom storage implementations via `StorageInterface`
 
 ## Best Practices
 
@@ -163,15 +161,15 @@ await storage.transaction(() async {
   return null;
 }); // Automatically commits or rolls back
 
-// Nested transactions
+// Nested transactions (SQLite uses savepoints)
 await storage.transaction(() async {
   await queue.enqueue(item1);
-  
+
   await storage.transaction(() async {
     await queue.enqueue(item2);
     return null;
   }); // Inner transaction
-  
+
   return null;
 }); // Outer transaction
 
@@ -201,22 +199,51 @@ final queue = Queue<String>(
 );
 
 // Process items with automatic retry
-await queue.processNext((data) async {
-  try {
+try {
+  await queue.processNext((data) async {
     await processItem(data);
-  } catch (e) {
-    // Failed attempts will be retried according to policy
-    // After maxAttempts, item moves to dead letter queue
-    rethrow;
-  }
-});
+    // If this throws, the entry is retried according to policy
+    // After maxAttempts, the entry moves to the dead letter queue
+  });
+} catch (e) {
+  print('Processing failed: $e');
+}
 ```
 
 ## Examples
 
+### Basic Queue Operations
+```dart
+// Create a queue
+final queue = manager.queue<String>('notifications');
+
+// Add items
+await queue.enqueue('Notification 1');
+await queue.enqueue('Notification 2');
+
+// dequeue() returns the raw data (T?), not a QueueEntry
+while (true) {
+  final item = await queue.dequeue();
+  if (item == null) break;
+
+  await processNotification(item);
+}
+```
+
+### Multiple Queue Types
+```dart
+// Email queue
+final emailQueue = manager.queue<EmailMessage>('emails');
+await emailQueue.enqueue(EmailMessage(...));
+
+// Job queue
+final jobQueue = manager.queue<BackgroundJob>('jobs');
+await jobQueue.enqueue(BackgroundJob(...));
+```
+
 ### Transaction Support
 
-DuraQ provides robust transaction support with ACID guarantees:
+DuraQ provides robust transaction support (ACID guarantees with SQLite):
 
 1. **Atomicity**: All operations in a transaction either succeed or fail together
 2. **Consistency**: The database remains in a valid state before and after the transaction
@@ -233,7 +260,7 @@ DuraQ provides robust transaction support with ACID guarantees:
 #### Features
 
 - Automatic commit/rollback handling
-- Nested transaction support using savepoints
+- Nested transaction support using savepoints (SQLite)
 - Manual transaction control when needed
 - Error handling with automatic rollback
 
@@ -270,13 +297,13 @@ await storage.transaction(() async {
   if (highPriorityItem != null) {
     await processQueue.enqueue(highPriorityItem);
   }
-  
+
   // Process normal queue
   final normalItem = await normalQueue.dequeue();
   if (normalItem != null) {
     await processQueue.enqueue(normalItem);
   }
-  
+
   return null;
 });
 ```
@@ -297,7 +324,7 @@ final retryPolicy = ExponentialBackoff(
 // Create queue with retry policy
 final queue = Queue<String>('retry-queue', storage, retryPolicy: retryPolicy);
 
-// Process items with automatic retry
+// processNext handles retry logic automatically
 await queue.processNext((data) async {
   await processWithRetry(data);
 });
@@ -344,35 +371,6 @@ try {
 }
 ```
 
-### Basic Queue Operations
-```dart
-// Create a queue
-final queue = manager.queue<String>('notifications');
-
-// Add items
-await queue.enqueue('Notification 1');
-await queue.enqueue('Notification 2');
-
-// Process items
-while (true) {
-  final item = await queue.dequeue();
-  if (item == null) break;
-  
-  await processNotification(item);
-}
-```
-
-### Multiple Queue Types
-```dart
-// Email queue
-final emailQueue = manager.queue<EmailMessage>('emails');
-await emailQueue.enqueue(EmailMessage(...));
-
-// Job queue
-final jobQueue = manager.queue<BackgroundJob>('jobs');
-await jobQueue.enqueue(BackgroundJob(...));
-```
-
 ### Dead Letter Queue
 
 DuraQ provides built-in dead letter queue support for handling failed entries:
@@ -387,11 +385,15 @@ final queue = Queue<String>(
 );
 
 // Failed entries move to dead letter queue after max attempts
-await queue.processNext((data) async {
-  if (!await processItem(data)) {
-    throw ProcessingError('Failed to process item');
-  }
-});
+try {
+  await queue.processNext((data) async {
+    if (!await processItem(data)) {
+      throw ProcessingError('Failed to process item');
+    }
+  });
+} catch (e) {
+  // Entry has been moved to dead letter or scheduled for retry
+}
 ```
 
 2. **Dead Letter Queue Management**
@@ -414,10 +416,9 @@ print('Dead letter entries: $count');
 
 3. **Entry Recovery**
 ```dart
-// Retry a specific entry
+// Retry a specific entry (resets attempts to 0, moves back to pending)
 final deadLetter = await dlq.retrieve();
 if (deadLetter != null) {
-  // Move back to main queue for retry
   await dlq.retry(deadLetter.id);
 }
 
@@ -436,7 +437,7 @@ print('Purged $purged old entries');
 
 - Automatic movement of failed entries after retry exhaustion
 - Pagination support for listing entries
-- Entry retry capability
+- Entry retry capability (resets attempt counter)
 - Permanent entry removal
 - Automatic cleanup of old entries
 - Error message preservation
@@ -460,10 +461,10 @@ if (count > 0) {
 // Implement regular cleanup
 final cleanupJob = Timer.periodic(Duration(days: 1), (_) async {
   final dlq = DeadLetterQueue<String>('my-queue', storage);
-  
+
   // Keep entries for 30 days
   final purged = await dlq.purgeOldEntries(Duration(days: 30));
-  
+
   // Log cleanup results
   logger.info('Purged $purged old dead letter entries');
 });
@@ -476,7 +477,7 @@ final entries = await dlq.list();
 final errorCounts = <String, int>{};
 
 for (final entry in entries) {
-  errorCounts[entry.errorMessage ?? 'Unknown'] = 
+  errorCounts[entry.errorMessage ?? 'Unknown'] =
     (errorCounts[entry.errorMessage] ?? 0) + 1;
 }
 
@@ -492,10 +493,7 @@ for (final error in errorCounts.entries) {
 final entries = await dlq.list();
 for (final entry in entries) {
   if (entry.errorMessage?.contains('Temporary failure') ?? false) {
-    // Retry temporary failures
-    await dlq.retry(entry.id);
-  } else if (entry.attempts < 5) {
-    // Retry entries with few attempts
+    // Retry temporary failures (resets attempts to 0)
     await dlq.retry(entry.id);
   } else {
     // Remove permanently failed entries
@@ -509,7 +507,7 @@ for (final entry in entries) {
 DuraQ supports scheduling entries for future processing:
 
 ```dart
-// Schedule an entry for future processing
+// Schedule an entry for future processing using enqueueEntry
 final scheduledTime = DateTime.now().add(Duration(hours: 1));
 final entry = QueueEntry<String>(
   id: 'scheduled-task-1',
@@ -518,10 +516,10 @@ final entry = QueueEntry<String>(
   scheduledFor: scheduledTime,
 );
 
-await queue.enqueue(entry);
+await queue.enqueueEntry(entry);
 
 // The entry won't be retrieved until the scheduled time
-final nextEntry = await queue.dequeue(); // Returns null if no entries are ready
+final nextItem = await queue.dequeue(); // Returns null if no entries are ready
 ```
 
 #### Features
@@ -529,7 +527,6 @@ final nextEntry = await queue.dequeue(); // Returns null if no entries are ready
 - Schedule entries for future processing
 - Entries remain in queue but won't be retrieved before their scheduled time
 - Combines with priority support (priority order applies once scheduled time is reached)
-- Automatic handling of timezone and daylight saving changes
 - Perfect for:
   - Delayed email notifications
   - Scheduled background jobs
@@ -541,7 +538,7 @@ final nextEntry = await queue.dequeue(); // Returns null if no entries are ready
 1. **Delayed Notifications**
 ```dart
 final reminderTime = DateTime.now().add(Duration(days: 1));
-await notificationQueue.enqueue(QueueEntry(
+await notificationQueue.enqueueEntry(QueueEntry(
   id: 'reminder-1',
   data: 'Follow-up reminder email',
   createdAt: DateTime.now(),
@@ -558,7 +555,7 @@ final midnightTonight = DateTime.now().copyWith(
   millisecond: 0,
 ).add(Duration(days: 1));
 
-await jobQueue.enqueue(QueueEntry(
+await jobQueue.enqueueEntry(QueueEntry(
   id: 'nightly-job-1',
   data: 'Run nightly maintenance',
   createdAt: DateTime.now(),
@@ -568,6 +565,7 @@ await jobQueue.enqueue(QueueEntry(
 
 3. **Time-based Workflow**
 ```dart
+final now = DateTime.now();
 final workflow = [
   QueueEntry(
     id: 'step1',
@@ -591,7 +589,7 @@ final workflow = [
 
 await storage.transaction(() async {
   for (final step in workflow) {
-    await workflowQueue.enqueue(step);
+    await workflowQueue.enqueueEntry(step);
   }
   return null;
 });
@@ -606,19 +604,15 @@ DuraQ provides built-in support for concurrent processing with entry-level locki
 final consumer1 = QueueManager(storage);
 final consumer2 = QueueManager(storage);
 
-// Each entry will only be processed by one consumer
-final entry1 = await consumer1.queue<String>('jobs').dequeue();
-final entry2 = await consumer2.queue<String>('jobs').dequeue();
-
-// Entries are automatically locked while being processed
-// Other consumers won't receive the same entry until it's completed or failed
+// Each consumer gets a different entry - entries are locked while processing
+final item1 = await consumer1.queue<String>('jobs').dequeue();
+final item2 = await consumer2.queue<String>('jobs').dequeue();
 ```
 
 #### Features
 
 - Entry-level locking for safe concurrent processing
-- Automatic lock cleanup for expired locks
-- Lock timeout support to prevent stuck entries
+- Automatic lock cleanup for expired locks (default: 5 minute timeout)
 - Combines with other features:
   - Priority-based processing
   - Scheduled execution
@@ -629,100 +623,57 @@ final entry2 = await consumer2.queue<String>('jobs').dequeue();
 
 1. **Multiple Workers**
 ```dart
-void startWorker(String name, Storage storage) async {
-  final queue = QueueManager(storage).queue<Job>('jobs');
-  
+void startWorker(String name, SQLiteStorage storage) async {
+  final queue = Queue<String>('jobs', storage);
+
   while (true) {
-    final entry = await queue.dequeue();
-    if (entry == null) {
-      await Future.delayed(Duration(seconds: 1));
-      continue;
-    }
-    
     try {
-      await processJob(entry.data);
-      await queue.markCompleted(entry.id);
+      final processed = await queue.processNext((data) async {
+        await processJob(data);
+      });
+      if (!processed) {
+        await Future.delayed(Duration(seconds: 1));
+      }
     } catch (e) {
-      await queue.markFailed(entry.id, error: e.toString());
+      // processNext handles retry/dead-letter automatically
+      print('$name: Processing failed: $e');
     }
   }
 }
 
-// Start multiple workers
+// Start multiple workers sharing the same storage
 final storage = SQLiteStorage(dbPath: 'queue.db');
 startWorker('worker1', storage);
 startWorker('worker2', storage);
 startWorker('worker3', storage);
 ```
 
-2. **Distributed Processing**
+2. **Safe Concurrent Processing**
 ```dart
-// Workers can run on different machines
-// SQLite with WAL mode supports concurrent access
-final worker1 = SQLiteStorage(dbPath: '/shared/queue.db');
-final worker2 = SQLiteStorage(dbPath: '/shared/queue.db');
+final queue = Queue<String>('orders', storage);
 
-// Each worker gets unique entries
-final entry1 = await worker1.retrieve('jobs'); // Gets first available entry
-final entry2 = await worker2.retrieve('jobs'); // Gets next available entry
-```
-
-3. **Safe Concurrent Updates**
-```dart
-final queue = QueueManager(storage).queue<Order>('orders');
-
-// Multiple processors can safely update entries
+// Multiple processors can safely run in parallel
 await Future.wait([
-  processOrders(queue, processor1),
-  processOrders(queue, processor2),
-  processOrders(queue, processor3),
+  processOrders(queue),
+  processOrders(queue),
+  processOrders(queue),
 ]);
 
-// Each entry is processed exactly once
-async void processOrders(Queue<Order> queue, OrderProcessor processor) {
+Future<void> processOrders(Queue<String> queue) async {
   while (true) {
-    final entry = await queue.dequeue();
-    if (entry == null) break;
-    
-    try {
-      await processor.process(entry.data);
-      await queue.markCompleted(entry.id);
-    } catch (e) {
-      await queue.markFailed(entry.id, error: e.toString());
-    }
+    final processed = await queue.processNext((data) async {
+      await fulfillOrder(data);
+    });
+    if (!processed) break; // No more items
   }
-}
-```
-
-#### Best Practices
-
-1. **Lock Timeouts**
-```dart
-// Configure appropriate lock timeout
-final storage = SQLiteStorage(
-  dbPath: 'queue.db',
-  lockDuration: Duration(minutes: 30), // Default is 5 minutes
-);
-```
-
-2. **Error Handling**
-```dart
-try {
-  final entry = await queue.dequeue();
-  if (entry != null) {
-    await processEntry(entry);
-    await queue.markCompleted(entry.id);
-  }
-} catch (e) {
-  // Entry lock is automatically released on failure
-  await queue.markFailed(entry.id, error: e.toString());
 }
 ```
 
 3. **Health Monitoring**
 ```dart
-// Periodically check for stuck entries
-final stuckEntries = await storage.getEntriesByStatus(
+// Periodically check for stuck entries using SQLiteStorage directly
+final sqliteStorage = storage as SQLiteStorage;
+final stuckEntries = await sqliteStorage.getEntriesByStatus(
   'jobs',
   EntryStatus.processing,
 );
@@ -735,6 +686,8 @@ for (final entry in stuckEntries) {
   }
 }
 ```
+
+> **Note**: `getEntriesByStatus()` is available on `SQLiteStorage` and `IsarStorage` directly, but is not part of the `StorageInterface` contract.
 
 ## Health Checks
 
@@ -765,7 +718,7 @@ if (status == HealthStatus.healthy) {
   print('All systems operational');
 }
 
-// Get detailed health information
+// Get detailed health information (checks run in parallel)
 final results = await healthChecks.checkAll();
 for (final result in results.values) {
   print('${result.component}: ${result.status}');
@@ -798,6 +751,8 @@ MIT
 
 ## See Also
 
-- [Features Documentation](features.md)
+- [Priority Queues](docs/features/priority_queues.md)
+- [Status Tracking](docs/features/status_tracking.md)
+- [TTL Support](docs/features/ttl_support.md)
 - [API Documentation](https://pub.dev/documentation/duraq)
-- [GitHub Repository](https://github.com/yourusername/duraq)
+- [GitHub Repository](https://github.com/stephanfeb/duraq)
