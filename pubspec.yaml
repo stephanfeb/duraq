@@ -1,6 +1,6 @@
 name: duraq
 description: A durable queuing system implemented in Dart
-version: 1.0.0
+version: 1.0.1
 repository: https://github.com/stephanfeb/duraq
 
 environment:

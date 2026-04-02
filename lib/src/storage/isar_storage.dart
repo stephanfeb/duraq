@@ -357,8 +357,8 @@ class IsarStorage implements StorageInterface {
   }) async {
     _checkDisposed();
 
-    // Release the lock if the entry is completed or failed
-    if (status == EntryStatus.completed || status == EntryStatus.failed) {
+    // Release the lock if the entry is no longer being processed
+    if (status == EntryStatus.completed || status == EntryStatus.failed || status == EntryStatus.pending) {
       await _lock.release(queueName, entryId);
     }
 
