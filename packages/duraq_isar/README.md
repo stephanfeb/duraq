@@ -11,7 +11,7 @@ constraint.
 
 ```yaml
 dependencies:
-  duraq: ^1.0.2
+  duraq: ^2.0.0
   duraq_isar: ^1.0.0
 ```
 

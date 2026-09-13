@@ -5,7 +5,15 @@ All notable changes to DuraQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-09-14
+
+A durability release. Six defects that could lose or duplicate a job are fixed,
+every finding from the durability audit of 12 September 2026 is closed, and the
+package is now tested by CI for the first time.
+
+**If you are upgrading from 1.0.x, read the Breaking section below**: `dequeue`
+now means something different, and the Isar backend has moved to its own
+package.
 
 ### Fixed
 - The health check API is now exported from `package:duraq/duraq.dart`.
@@ -122,6 +130,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an unfiltered delete over the lock table, so one process shutting down freed
   every in-flight entry in the database, including entries other processes were
   still working on. Each lock manager now tracks and releases only its own.
+
+### Upgrading from 1.0.x
+
+Four things need attention. Everything else is source-compatible.
+
+**1. If you use the Isar backend**, add the package and one import. Existing
+databases open unchanged.
+
+```yaml
+dependencies:
+  duraq: ^2.0.0
+  duraq_isar: ^1.0.0   # new
+```
+
+```dart
+import 'package:duraq/duraq.dart';
+import 'package:duraq_isar/duraq_isar.dart';   // new
+```
+
+Pass `...IsarStorage.requiredSchemas` to `Isar.open` rather than listing the
+collections yourself — the set gained a schema-version collection, and a
+hand-written list will fail to open with an error saying so.
+
+**2. If you call `dequeue()`, decide whether you meant it.** It now removes the
+entry as it hands it over, which is what it always claimed to do. That makes it
+**at most once**: work in flight when the process dies is gone. Previously the
+entry was left claimed and redelivered when its lease expired, so a `dequeue()`
+loop was silently redelivering everything it processed.
+
+```dart
+final item = await queue.dequeue();     // at most once; lost if you crash
+await queue.processNext(handleItem);    // at least once; retried and reclaimed
+```
+
+Use `processNext` for anything that must not be lost. If you were relying on the
+old redelivery, you were relying on a bug, but the behaviour you want is
+`processNext`.
+
+**3. If you implement `StorageInterface` yourself**, add `close()` and
+`countReady()`. Dart's `implements` copies signatures only, so the interface's
+default bodies do not reach you — the compiler will say so. See
+`test/custom_backend_test.dart` in this package for the smallest version that
+satisfies it.
+
+**4. If you call `updateEntryStatus()` directly**, it now throws
+`EntryNotFoundException` when no entry has that id, rather than reporting
+success. A change discarded because your lease expired still returns quietly.
+
+**Also worth knowing**: the SDK floor is now 3.2.0. That corrects a false claim
+rather than dropping support — `sqlite3` has required 3.2.0 for some time, so
+1.0.x could never actually resolve on 3.0 or 3.1.
 
 ### Breaking
 - The declared SDK floor moves from `>=3.0.0` to `>=3.2.0`. This corrects a
