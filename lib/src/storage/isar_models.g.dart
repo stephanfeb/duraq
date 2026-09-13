@@ -5394,3 +5394,475 @@ extension QueueLockCollectionQueryProperty
     });
   }
 }
+
+// coverage:ignore-file
+// ignore_for_file: duplicate_ignore, non_constant_identifier_names, constant_identifier_names, invalid_use_of_protected_member, unnecessary_cast, prefer_const_constructors, lines_longer_than_80_chars, require_trailing_commas, inference_failure_on_function_invocation, unnecessary_parenthesis, unnecessary_raw_strings, unnecessary_null_checks, join_return_with_assignment, prefer_final_locals, avoid_js_rounded_ints, avoid_positional_boolean_parameters, always_specify_types
+
+extension GetQueueMetaCollectionCollection on Isar {
+  IsarCollection<QueueMetaCollection> get queueMetaCollections =>
+      this.collection();
+}
+
+const QueueMetaCollectionSchema = CollectionSchema(
+  name: r'QueueMetaCollection',
+  id: -4344896177999960867,
+  properties: {
+    r'schemaVersion': PropertySchema(
+      id: 0,
+      name: r'schemaVersion',
+      type: IsarType.long,
+    ),
+    r'updatedAt': PropertySchema(
+      id: 1,
+      name: r'updatedAt',
+      type: IsarType.dateTime,
+    )
+  },
+  estimateSize: _queueMetaCollectionEstimateSize,
+  serialize: _queueMetaCollectionSerialize,
+  deserialize: _queueMetaCollectionDeserialize,
+  deserializeProp: _queueMetaCollectionDeserializeProp,
+  idName: r'id',
+  indexes: {},
+  links: {},
+  embeddedSchemas: {},
+  getId: _queueMetaCollectionGetId,
+  getLinks: _queueMetaCollectionGetLinks,
+  attach: _queueMetaCollectionAttach,
+  version: '3.1.0+1',
+);
+
+int _queueMetaCollectionEstimateSize(
+  QueueMetaCollection object,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  var bytesCount = offsets.last;
+  return bytesCount;
+}
+
+void _queueMetaCollectionSerialize(
+  QueueMetaCollection object,
+  IsarWriter writer,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  writer.writeLong(offsets[0], object.schemaVersion);
+  writer.writeDateTime(offsets[1], object.updatedAt);
+}
+
+QueueMetaCollection _queueMetaCollectionDeserialize(
+  Id id,
+  IsarReader reader,
+  List<int> offsets,
+  Map<Type, List<int>> allOffsets,
+) {
+  final object = QueueMetaCollection();
+  object.id = id;
+  object.schemaVersion = reader.readLong(offsets[0]);
+  object.updatedAt = reader.readDateTime(offsets[1]);
+  return object;
+}
+
+P _queueMetaCollectionDeserializeProp<P>(
+  IsarReader reader,
+  int propertyId,
+  int offset,
+  Map<Type, List<int>> allOffsets,
+) {
+  switch (propertyId) {
+    case 0:
+      return (reader.readLong(offset)) as P;
+    case 1:
+      return (reader.readDateTime(offset)) as P;
+    default:
+      throw IsarError('Unknown property with id $propertyId');
+  }
+}
+
+Id _queueMetaCollectionGetId(QueueMetaCollection object) {
+  return object.id;
+}
+
+List<IsarLinkBase<dynamic>> _queueMetaCollectionGetLinks(
+    QueueMetaCollection object) {
+  return [];
+}
+
+void _queueMetaCollectionAttach(
+    IsarCollection<dynamic> col, Id id, QueueMetaCollection object) {
+  object.id = id;
+}
+
+extension QueueMetaCollectionQueryWhereSort
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QWhere> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhere> anyId() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(const IdWhereClause.any());
+    });
+  }
+}
+
+extension QueueMetaCollectionQueryWhere
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QWhereClause> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhereClause>
+      idEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(
+        lower: id,
+        upper: id,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhereClause>
+      idNotEqualTo(Id id) {
+    return QueryBuilder.apply(this, (query) {
+      if (query.whereSort == Sort.asc) {
+        return query
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            )
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            );
+      } else {
+        return query
+            .addWhereClause(
+              IdWhereClause.greaterThan(lower: id, includeLower: false),
+            )
+            .addWhereClause(
+              IdWhereClause.lessThan(upper: id, includeUpper: false),
+            );
+      }
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhereClause>
+      idGreaterThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.greaterThan(lower: id, includeLower: include),
+      );
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhereClause>
+      idLessThan(Id id, {bool include = false}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(
+        IdWhereClause.lessThan(upper: id, includeUpper: include),
+      );
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterWhereClause>
+      idBetween(
+    Id lowerId,
+    Id upperId, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addWhereClause(IdWhereClause.between(
+        lower: lowerId,
+        includeLower: includeLower,
+        upper: upperId,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+}
+
+extension QueueMetaCollectionQueryFilter on QueryBuilder<QueueMetaCollection,
+    QueueMetaCollection, QFilterCondition> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      idEqualTo(Id value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'id',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      idGreaterThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'id',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      idLessThan(
+    Id value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'id',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      idBetween(
+    Id lower,
+    Id upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'id',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      schemaVersionEqualTo(int value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'schemaVersion',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      schemaVersionGreaterThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'schemaVersion',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      schemaVersionLessThan(
+    int value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'schemaVersion',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      schemaVersionBetween(
+    int lower,
+    int upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'schemaVersion',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      updatedAtEqualTo(DateTime value) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'updatedAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      updatedAtGreaterThan(
+    DateTime value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'updatedAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      updatedAtLessThan(
+    DateTime value, {
+    bool include = false,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'updatedAt',
+        value: value,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterFilterCondition>
+      updatedAtBetween(
+    DateTime lower,
+    DateTime upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'updatedAt',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+      ));
+    });
+  }
+}
+
+extension QueueMetaCollectionQueryObject on QueryBuilder<QueueMetaCollection,
+    QueueMetaCollection, QFilterCondition> {}
+
+extension QueueMetaCollectionQueryLinks on QueryBuilder<QueueMetaCollection,
+    QueueMetaCollection, QFilterCondition> {}
+
+extension QueueMetaCollectionQuerySortBy
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QSortBy> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      sortBySchemaVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'schemaVersion', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      sortBySchemaVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'schemaVersion', Sort.desc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      sortByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updatedAt', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      sortByUpdatedAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updatedAt', Sort.desc);
+    });
+  }
+}
+
+extension QueueMetaCollectionQuerySortThenBy
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QSortThenBy> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenById() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenByIdDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'id', Sort.desc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenBySchemaVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'schemaVersion', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenBySchemaVersionDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'schemaVersion', Sort.desc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updatedAt', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QAfterSortBy>
+      thenByUpdatedAtDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'updatedAt', Sort.desc);
+    });
+  }
+}
+
+extension QueueMetaCollectionQueryWhereDistinct
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QDistinct> {
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QDistinct>
+      distinctBySchemaVersion() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'schemaVersion');
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, QueueMetaCollection, QDistinct>
+      distinctByUpdatedAt() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addDistinctBy(r'updatedAt');
+    });
+  }
+}
+
+extension QueueMetaCollectionQueryProperty
+    on QueryBuilder<QueueMetaCollection, QueueMetaCollection, QQueryProperty> {
+  QueryBuilder<QueueMetaCollection, int, QQueryOperations> idProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'id');
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, int, QQueryOperations>
+      schemaVersionProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'schemaVersion');
+    });
+  }
+
+  QueryBuilder<QueueMetaCollection, DateTime, QQueryOperations>
+      updatedAtProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'updatedAt');
+    });
+  }
+}

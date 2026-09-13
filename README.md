@@ -137,6 +137,32 @@ Features:
 > New stores cannot create duplicates. The schema also changed to add the indexes
 > the queries need and drop the ones nothing used; existing databases migrate
 > when they are opened.
+>
+> This release also adds `QueueMetaCollectionSchema` to
+> `IsarStorage.requiredSchemas`. If you spread `...IsarStorage.requiredSchemas`
+> as shown above, nothing changes for you. If you listed DuraQ's collections by
+> hand, add it — otherwise the first operation raises an error saying so.
+
+### Schema Versions
+
+Both backends record the schema version of the database they are working with:
+SQLite in its `user_version` pragma, Isar in a row of its own.
+
+```dart
+SQLiteStorage.schemaVersion;          // what this release writes
+storage.storedSchemaVersion;          // what this database is at
+await isarStorage.storedSchemaVersion();
+```
+
+Two things follow from that. A database written by a **newer** DuraQ than the
+one running is refused with `SchemaVersionException` instead of being read as
+though nothing had changed — upgrade the package to open it. And a database
+written by an **older** DuraQ is migrated in place the first time it is opened,
+so future changes to the stored shape can reach databases already in the field.
+
+A database from before versioning existed is treated as version 1, which is the
+shape every release up to now wrote. No action is needed: open it and it is
+brought up to date.
 
 ### Upcoming Storage Options
 - File system storage

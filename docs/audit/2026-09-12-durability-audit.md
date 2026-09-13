@@ -50,7 +50,8 @@ landed; this table is the index.
 | M6 | Status updates clear fields nobody asked them to clear | Fixed (missing id now throws) |
 | M8 | Dead-lettered and expired entries keep their lock | Fixed |
 | M10 | Lock acquisition swallows every error as contention | Fixed |
-| M7, M9, M11–M14 | Contract, clarity and dead weight | **Open** |
+| M13 | No schema version, no migration path | Fixed (unblocks the two deferred decisions) |
+| M7, M9, M11, M12, M14 | Contract, clarity and dead weight | **Open** |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
@@ -755,6 +756,47 @@ Eleven of the twenty tests in `update_semantics_test.dart` fail against the old
 implementation, symmetrically across both backends. `test/utils/mock_storage.dart`
 was updated to match the contract: it could not clear those fields at all, so
 the mock and the real backends had quietly disagreed about M6 all along.
+
+### Status: M13 fixed
+
+Both backends now record a schema version and can migrate a database forward.
+SQLite uses its own `user_version` pragma, which costs nothing and needs no
+table. Isar has no equivalent, so it gets a one-row `QueueMetaCollection`.
+
+The behaviour that matters is symmetric on both: a database written by a **newer**
+DuraQ is refused with `SchemaVersionException` rather than read as though
+nothing had changed, and a database written by an **older** one is brought up to
+date in place. A database from before versioning existed is taken to be version
+1 — the shape every release up to now wrote — and stamped on first contact.
+
+The migration runner was extracted into `SqliteSchema` so it could be tested
+with real migrations rather than asserted against an empty map: the tests walk a
+three-version schema, check that only the missing steps run, and that a step
+which throws rolls back and leaves the database at the last version that applied
+in full. A mechanism whose first real use is a future release is worth proving
+now rather than trusting.
+
+Verified against fixtures rather than reasoned about. A SQLite database written
+by this package and then stripped of its version opens, keeps its rows, and is
+stamped. An Isar database written with the *previous* schema set — three
+collections, no meta — opens under the new set with its entries intact and
+still serves work.
+
+That last check turned up an upgrade hazard worth naming: a caller who listed
+DuraQ's collections by hand instead of spreading `IsarStorage.requiredSchemas`
+gets `IsarError: Missing TypeSchema in Isar.open`, which names neither the
+collection nor the fix. That is now translated into an error that names both.
+
+**The status parse**, the other half of the finding, no longer throws
+`ArgumentError: Invalid argument (name): No enum value with that name`. An entry
+carrying a status this release has no name for reports which entry and why.
+
+**What this unblocks.** Both decisions deferred earlier in this remediation were
+waiting on exactly this. The Isar entry index is deliberately not unique, and
+entry ids are unique across the storage rather than per queue; both would change
+what existing databases mean, and until now there was no way to carry a field
+database across such a change. There is now. Neither decision is revisited here —
+they remain open, but they are no longer blocked.
 
 ## Test suite and process (Q1–Q6)
 

@@ -115,3 +115,29 @@ class QueueLockCollection {
   @Index(unique: true)
   String get lockKey => lockKeyFor(queueName, entryId);
 }
+
+/// Isar collection recording the schema this database was written for.
+///
+/// Isar migrates its own structure — adding a collection, an index or a field
+/// is handled for us — but nothing recorded which release's *data* conventions
+/// a database follows, so a change of meaning had no way to reach databases
+/// already in the field, and a database written by a newer release was opened
+/// as if nothing had changed. This is the SQLite `user_version` pragma's
+/// counterpart, which Isar has no equivalent of.
+///
+/// Exactly one row, at [metaRowId].
+@collection
+class QueueMetaCollection {
+  /// The single row's id. Fixed rather than auto-incremented, so writing the
+  /// version is an upsert and two writers cannot create two rows.
+  Id id = metaRowId;
+
+  /// The schema version the database is at.
+  late int schemaVersion;
+
+  /// When that version was recorded.
+  late DateTime updatedAt;
+}
+
+/// The id of the single row in [QueueMetaCollection].
+const Id metaRowId = 1;

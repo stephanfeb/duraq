@@ -79,6 +79,7 @@ class IsarStorage implements StorageInterface {
     QueueCollectionSchema,
     QueueEntryCollectionSchema,
     QueueLockCollectionSchema,
+    QueueMetaCollectionSchema,
   ];
 
   void _checkDisposed() {
@@ -88,6 +89,108 @@ class IsarStorage implements StorageInterface {
     if (!_isar.isOpen) {
       throw StateError('Isar instance has been closed');
     }
+  }
+
+  /// The schema this release writes and understands.
+  ///
+  /// Version 1 is the shape DuraQ has always had; it was simply never recorded.
+  /// Isar migrates its own structure, so this exists for changes of *meaning* —
+  /// a key format, a convention, a cleanup that has to run once — which Isar
+  /// cannot know about.
+  static const int schemaVersion = 1;
+
+  /// How a database at version `key - 1` becomes one at version `key`.
+  ///
+  /// Empty while there is only one version. It exists so the next change of
+  /// meaning has somewhere to go: `removeDuplicateEntries` had to ship as a
+  /// cleanup the caller runs by hand precisely because there was no version to
+  /// hang it on.
+  static final Map<int, Future<void> Function(Isar isar)> _migrations = {};
+
+  /// The schema check, run once per instance and awaited by every operation.
+  Future<void>? _schemaChecked;
+
+  Future<void> _ensureSchema() => _schemaChecked ??= _applySchema();
+
+  /// Rejects a disposed instance and makes sure the schema has been checked
+  /// before any data is touched.
+  ///
+  /// Every operation goes through here. The check costs one indexed read on
+  /// the first call and nothing afterwards.
+  Future<void> _ready() async {
+    _checkDisposed();
+    await _ensureSchema();
+  }
+
+  /// The schema version recorded in the database, or zero if none is.
+  Future<int> storedSchemaVersion() async {
+    try {
+      return (await _isar.queueMetaCollections.get(metaRowId))?.schemaVersion ??
+          0;
+    } on IsarError catch (e) {
+      if (e.message.contains('Missing TypeSchema')) {
+        // The caller listed DuraQ's collections by hand instead of spreading
+        // requiredSchemas, and this release added one. Isar's own message
+        // names neither the collection nor the fix.
+        throw DuraQException(
+          'This Isar instance was opened without DuraQ\'s schema-version '
+          'collection. Pass ...IsarStorage.requiredSchemas to Isar.open, which '
+          'now includes QueueMetaCollectionSchema; listing DuraQ\'s '
+          'collections by hand will break again the next time one is added.',
+          cause: e,
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _applySchema() async {
+    final found = await storedSchemaVersion();
+
+    if (found > schemaVersion) {
+      throw SchemaVersionException(found, schemaVersion,
+          detail: 'Isar instance: ${_isar.name}.');
+    }
+
+    var version = found;
+
+    if (version == 0) {
+      // Either a new database or one written before versioning existed. Rows
+      // already present mean the latter, and such a database is at version 1
+      // by definition: it is the shape every release up to now wrote.
+      final existing = await _isar.queueEntryCollections.count() > 0 ||
+          await _isar.queueCollections.count() > 0;
+      version = existing ? 1 : schemaVersion;
+      await _recordSchemaVersion(version);
+    }
+
+    while (version < schemaVersion) {
+      final next = version + 1;
+      final migration = _migrations[next];
+      if (migration == null) {
+        throw DuraQException(
+          'No migration from schema version $version to $next. This is a bug '
+          'in DuraQ: schemaVersion was raised without a step to match.',
+        );
+      }
+
+      // The step and the version it produces land in one write transaction, so
+      // a failure leaves the database at the last version that applied in full.
+      await IsarWriteScope.run(_isar, () async {
+        await migration(_isar);
+        await _recordSchemaVersion(next);
+      });
+      version = next;
+    }
+  }
+
+  Future<void> _recordSchemaVersion(int version) async {
+    await IsarWriteScope.run(_isar, () async {
+      await _isar.queueMetaCollections.put(QueueMetaCollection()
+        ..id = metaRowId
+        ..schemaVersion = version
+        ..updatedAt = DateTime.now());
+    });
   }
 
   /// Converts a QueueEntryCollection to a QueueEntry.
@@ -141,7 +244,7 @@ class IsarStorage implements StorageInterface {
   /// transaction and rolls it back if the body throws.
   @override
   Future<void> beginTransaction() async {
-    _checkDisposed();
+    await _ready();
     throw UnsupportedError(
       'IsarStorage does not support manually managed transactions. '
       'Use transaction() instead, which runs the body in a single Isar write '
@@ -152,7 +255,7 @@ class IsarStorage implements StorageInterface {
   /// Not supported; see [beginTransaction].
   @override
   Future<void> commitTransaction() async {
-    _checkDisposed();
+    await _ready();
     throw UnsupportedError(
       'IsarStorage does not support manually managed transactions. '
       'Use transaction() instead.',
@@ -162,7 +265,7 @@ class IsarStorage implements StorageInterface {
   /// Not supported; see [beginTransaction].
   @override
   Future<void> rollbackTransaction() async {
-    _checkDisposed();
+    await _ready();
     throw UnsupportedError(
       'IsarStorage does not support manually managed transactions. '
       'Use transaction() instead.',
@@ -175,8 +278,8 @@ class IsarStorage implements StorageInterface {
   /// either all of them are committed or, if the body throws, none of them are.
   /// Nested calls to [transaction] join the transaction already in progress.
   @override
-  Future<T> transaction<T>(Future<T> Function() operations) {
-    _checkDisposed();
+  Future<T> transaction<T>(Future<T> Function() operations) async {
+    await _ready();
     return IsarWriteScope.run(_isar, operations);
   }
 
@@ -186,7 +289,7 @@ class IsarStorage implements StorageInterface {
     QueueEntry<dynamic> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) async {
-    _checkDisposed();
+    await _ready();
 
     await IsarWriteScope.run(_isar, () async {
       // Ensure queue exists
@@ -262,7 +365,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<QueueEntry<dynamic>?> retrieve(String queueName) async {
-    _checkDisposed();
+    await _ready();
 
     return await IsarWriteScope.run(
       _isar,
@@ -331,7 +434,7 @@ class IsarStorage implements StorageInterface {
   /// delivered [maxDeliveryAttempts] times are moved to the dead letter queue
   /// instead and are not counted.
   Future<int> reclaimStaleEntries({String? queueName}) async {
-    _checkDisposed();
+    await _ready();
     return await IsarWriteScope.run(
       _isar,
       () => _reclaimStaleInternal(queueName, DateTime.now()),
@@ -348,7 +451,7 @@ class IsarStorage implements StorageInterface {
   ///
   /// Returns the number of rows removed.
   Future<int> removeDuplicateEntries() async {
-    _checkDisposed();
+    await _ready();
 
     return await IsarWriteScope.run(_isar, () async {
       final all = await _isar.queueEntryCollections.where().findAll();
@@ -499,6 +602,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<int> count(String queueName) async {
+    await _ready();
     final now = DateTime.now();
     return await _byQueueAndStatus(queueName, EntryStatus.pending)
         .filter()
@@ -511,12 +615,14 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<List<String>> listQueues() async {
+    await _ready();
     final queues = await _isar.queueCollections.where().findAll();
     return queues.map((queue) => queue.name).toList();
   }
 
   @override
   Future<void> removeQueue(String queueName) async {
+    await _ready();
     await IsarWriteScope.run(_isar, () async {
       // Remove all entries for this queue
       await _isar.queueEntryCollections
@@ -534,6 +640,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<void> removeEntry(String queueName, String entryId) async {
+    await _ready();
     await IsarWriteScope.run(_isar, () async {
       await _isar.queueEntryCollections
           .where()
@@ -555,7 +662,7 @@ class IsarStorage implements StorageInterface {
     int? attempts,
     String? leaseId,
   }) async {
-    _checkDisposed();
+    await _ready();
 
     await IsarWriteScope.run(_isar, () async {
       // A consumer whose lease expired while it was working no longer speaks
@@ -613,6 +720,7 @@ class IsarStorage implements StorageInterface {
     String queueName,
     EntryStatus status,
   ) async {
+    await _ready();
     final entries = await _byQueueAndStatus(queueName, status).findAll();
 
     return entries
@@ -635,7 +743,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<QueueEntry<T>?> retrieveDeadLetter<T>(String queueName) async {
-    _checkDisposed();
+    await _ready();
     final entry = await _byQueueAndStatus(queueName, EntryStatus.deadLetter)
         .sortByLastUpdatedAt()
         .findFirst();
@@ -650,7 +758,7 @@ class IsarStorage implements StorageInterface {
     int? limit,
     int? offset,
   }) async {
-    _checkDisposed();
+    await _ready();
     final entries = await _byQueueAndStatus(queueName, EntryStatus.deadLetter)
         .sortByLastUpdatedAt()
         .offset(offset ?? 0)
@@ -662,7 +770,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<void> retryDeadLetter(String queueName, String entryId) async {
-    _checkDisposed();
+    await _ready();
     await IsarWriteScope.run(_isar, () async {
       final entry = await _findEntry(queueName, entryId);
 
@@ -678,7 +786,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<void> removeDeadLetter(String queueName, String entryId) async {
-    _checkDisposed();
+    await _ready();
     await IsarWriteScope.run(_isar, () async {
       final entry = await _findEntry(queueName, entryId);
 
@@ -690,7 +798,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<int> purgeDeadLetters(String queueName, DateTime cutoff) async {
-    _checkDisposed();
+    await _ready();
 
     return await IsarWriteScope.run(_isar, () async {
       return await _byQueueAndStatus(queueName, EntryStatus.deadLetter)
@@ -702,13 +810,13 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<int> countDeadLetters(String queueName) async {
-    _checkDisposed();
+    await _ready();
     return await _byQueueAndStatus(queueName, EntryStatus.deadLetter).count();
   }
 
   @override
   Future<List<QueueEntry<dynamic>>> retrieveAll(String queueName) async {
-    _checkDisposed();
+    await _ready();
 
     final entries = await _isar.queueEntryCollections
         .where()
@@ -725,7 +833,7 @@ class IsarStorage implements StorageInterface {
     RetentionPolicy policy = const RetentionPolicy(),
     String? queueName,
   }) async {
-    _checkDisposed();
+    await _ready();
 
     return await IsarWriteScope.run(_isar, () async {
       final now = DateTime.now();
@@ -783,7 +891,7 @@ class IsarStorage implements StorageInterface {
 
   @override
   Future<void> ping() async {
-    _checkDisposed();
+    await _ready();
     try {
       // Simple query to test database responsiveness
       await _isar.queueCollections.where().limit(1).findAll();

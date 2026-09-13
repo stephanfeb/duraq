@@ -171,3 +171,42 @@ class EntryNotFoundException extends DuraQException {
   @override
   String toString() => 'EntryNotFoundException: $message';
 }
+
+/// Thrown when a storage holds a schema this version of DuraQ does not know.
+///
+/// Raised on open when the database records a schema version newer than the one
+/// this release understands, which means a newer DuraQ wrote it. Opening it
+/// anyway risks reading columns that have moved or writing values the newer
+/// version will not accept, so it is refused rather than half-supported.
+///
+/// The same type reports a status value this release has no name for, which is
+/// the other way a newer writer shows up in an older reader.
+class SchemaVersionException extends DuraQException {
+  /// The schema version found in the storage.
+  final int found;
+
+  /// The newest schema version this release understands.
+  final int supported;
+
+  SchemaVersionException(this.found, this.supported, {String? detail})
+      : super(
+          'This storage is at schema version $found and this version of DuraQ '
+          'understands up to $supported. It was written by a newer DuraQ; '
+          'upgrade the package to open it.'
+          '${detail == null ? '' : ' $detail'}',
+        );
+
+  /// A status string that has no counterpart in this release's [EntryStatus].
+  SchemaVersionException.unknownStatus(
+    String status,
+    String entryId,
+    this.supported,
+  )   : found = supported,
+        super(
+          'Entry "$entryId" has status "$status", which this version of DuraQ '
+          'does not recognise. It was most likely written by a newer version.',
+        );
+
+  @override
+  String toString() => 'SchemaVersionException: $message';
+}

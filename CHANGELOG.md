@@ -110,6 +110,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
+- `IsarStorage.requiredSchemas` now includes `QueueMetaCollectionSchema`.
+  Callers already passing `...IsarStorage.requiredSchemas` to `Isar.open` need
+  no change and their databases upgrade in place. A caller that listed DuraQ's
+  collections by hand must add it; doing so raises a `DuraQException` naming the
+  fix rather than Isar's own `Missing TypeSchema`, which names neither the
+  collection nor what to do.
 - `updateEntryStatus()` now throws `EntryNotFoundException` when no entry with
   that id is in the queue. It previously reported success, so a typo, a stale
   id, or an entry already removed by a retention pass all looked like work
@@ -193,6 +199,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by earlier versions. Those versions could store several rows for one
   entry; this collapses them, keeping the most recently updated row, and
   returns how many rows it removed. Run it once after upgrading.
+- Schema versioning on both backends. SQLite records its version in the
+  `user_version` pragma; Isar records it in a new `QueueMetaCollection` row,
+  which is what Isar has no equivalent of. A database written by a newer DuraQ
+  is now refused on open with `SchemaVersionException` rather than being read as
+  if nothing had changed, and both backends have a migration runner so the next
+  change of shape or meaning has a way to reach databases already in the field.
+  Before this, tables were created if absent and never versioned.
+- `SQLiteStorage.schemaVersion` and `IsarStorage.schemaVersion`, the version
+  this release writes, alongside `SQLiteStorage.storedSchemaVersion` and
+  `IsarStorage.storedSchemaVersion()` for what a given database is at.
+- `SchemaVersionException`, raised when a storage is at a version this release
+  does not understand, and when an entry carries a status string this release
+  has no name for. The latter previously surfaced as
+  `ArgumentError: Invalid argument (name)`, naming neither the entry nor why.
 - `QueueCodec<T>` and a `codec` parameter on `Queue`, `DeadLetterQueue` and
   `QueueManager.queue`. Payloads are stored as JSON, which limited a queue to
   what `jsonEncode` accepts no matter what its type argument said. A codec makes

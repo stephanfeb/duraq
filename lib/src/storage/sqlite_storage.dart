@@ -9,6 +9,7 @@ import '../queue_entry.dart';
 import '../concurrent.dart';
 import '../concurrent/serial_lock.dart';
 import 'maintenance.dart';
+import 'sqlite_schema.dart';
 import 'storage_interface.dart';
 
 /// SQLite-based implementation of StorageInterface
@@ -100,7 +101,7 @@ class SQLiteStorage implements StorageInterface {
     // Initialize lock manager
     _lock = QueueLock(_db);
 
-    _createTables();
+    _applySchema();
 
     // From here on the waiting is done between attempts instead, so a
     // contended write never blocks the isolate for more than a slice.
@@ -140,14 +141,44 @@ class SQLiteStorage implements StorageInterface {
     }
   }
 
-  void _createTables() {
-    _db.execute('''
+  /// The schema this release writes and understands.
+  ///
+  /// Version 1 is the shape DuraQ has always had; it was simply never recorded
+  /// until now. Raise this when the tables change, and add the step that gets a
+  /// database there to the migrations below.
+  static const int schemaVersion = 1;
+
+  /// How this database is created and kept up to date.
+  ///
+  /// `migrations` is empty while there is only one version. It exists so the
+  /// next schema change has somewhere to go.
+  static final SqliteSchema _schema = SqliteSchema(
+    targetVersion: schemaVersion,
+    createCurrent: _createTablesIn,
+    looksUnversioned: (db) => db
+        .select(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+          ['queue_entries'],
+        )
+        .isNotEmpty,
+    migrations: const {},
+  );
+
+  /// The schema version recorded in the database file.
+  ///
+  /// Zero only for a file with no tables that has not been opened yet.
+  int get storedSchemaVersion => SqliteSchema.versionOf(_db);
+
+  void _applySchema() => _schema.applyTo(_db, label: dbPath);
+
+  static void _createTablesIn(Database db) {
+    db.execute('''
       CREATE TABLE IF NOT EXISTS queues (
         name TEXT PRIMARY KEY
       )
     ''');
 
-    _db.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS queue_entries (
         id TEXT PRIMARY KEY,
         queue_name TEXT NOT NULL,
@@ -166,13 +197,13 @@ class SQLiteStorage implements StorageInterface {
     ''');
 
     // Add index for efficient priority-based retrieval
-    _db.execute('''
+    db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_retrieval 
       ON queue_entries(queue_name, status, priority, created_at)
     ''');
 
     // Add index for TTL cleanup across every queue
-    _db.execute('''
+    db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_expiration
       ON queue_entries(expires_at)
       WHERE expires_at IS NOT NULL
@@ -182,21 +213,21 @@ class SQLiteStorage implements StorageInterface {
     // the leading queue_name the planner prefers the retrieval index and the
     // sweep degrades into a scan of every pending entry in the queue. Partial,
     // so entries without a TTL cost nothing to maintain.
-    _db.execute('''
+    db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_queue_expiration
       ON queue_entries(queue_name, expires_at)
       WHERE expires_at IS NOT NULL
     ''');
 
     // Add index for retry scheduling
-    _db.execute('''
+    db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_retry
       ON queue_entries(next_retry_at)
       WHERE next_retry_at IS NOT NULL
     ''');
 
     // Add index for scheduled execution
-    _db.execute('''
+    db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_scheduled
       ON queue_entries(scheduled_for)
       WHERE scheduled_for IS NOT NULL
@@ -231,6 +262,19 @@ class SQLiteStorage implements StorageInterface {
 
   /// Converts a database row to a QueueEntry.
   /// If [statusOverride] is provided, it is used instead of the row's status.
+  /// Turns a stored status string into an [EntryStatus].
+  ///
+  /// `EntryStatus.values.byName` throws `ArgumentError: Invalid argument (name):
+  /// No enum value with that name`, which says nothing about which entry, which
+  /// queue, or why. A status this release has no name for means a newer DuraQ
+  /// wrote the row, and that is worth saying plainly.
+  static EntryStatus _statusFromName(String name, String entryId) {
+    for (final status in EntryStatus.values) {
+      if (status.name == name) return status;
+    }
+    throw SchemaVersionException.unknownStatus(name, entryId, schemaVersion);
+  }
+
   /// [leaseId] is set when the row is being handed to a consumer.
   QueueEntry<T> _rowToEntry<T>(
     Row row, {
@@ -245,7 +289,8 @@ class SQLiteStorage implements StorageInterface {
       lastUpdatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       attempts: row['attempts'] as int,
       priority: row['priority'] as int,
-      status: statusOverride ?? EntryStatus.values.byName(row['status'] as String),
+      status: statusOverride ??
+          _statusFromName(row['status'] as String, row['id'] as String),
       errorMessage: row['error_message'] as String?,
       expiresAt: row['expires_at'] != null
           ? DateTime.fromMillisecondsSinceEpoch(row['expires_at'] as int)
