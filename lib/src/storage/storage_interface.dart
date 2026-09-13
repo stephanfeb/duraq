@@ -45,8 +45,47 @@ abstract class StorageInterface {
   /// Retrieves the next entry from the queue
   Future<QueueEntry<dynamic>?> retrieve(String queueName);
 
-  /// Returns the number of entries in a queue
+  /// The number of entries waiting in a queue, whether or not they can be
+  /// worked on yet.
+  ///
+  /// Counts pending entries that have not expired, including entries scheduled
+  /// for later and entries waiting out a retry backoff. This is the backlog: a
+  /// queue can report a count of five and hand out nothing, because all five
+  /// are due tomorrow.
+  ///
+  /// Use [countReady] for the number that can be worked on now, which is what
+  /// a health check or an autoscaler wants.
   Future<int> count(String queueName);
+
+  /// The number of entries that could be handed out right now.
+  ///
+  /// Counts what [retrieve] would consider: pending, not expired, not scheduled
+  /// for later, and not waiting out a retry. A count of zero here means
+  /// [retrieve] returns null, which [count] cannot tell you.
+  ///
+  /// Entries another consumer is already working on are not counted by either,
+  /// since claiming one moves it out of `pending`.
+  ///
+  /// The default walks the queue and filters in memory, which is correct for
+  /// any backend but reads every entry. Both built-in backends answer with a
+  /// query instead; a custom backend should do the same.
+  Future<int> countReady(String queueName) async {
+    final now = DateTime.now();
+    final entries = await retrieveAll(queueName);
+    return entries.where((entry) {
+      if (entry.status != EntryStatus.pending) return false;
+      if (entry.expiresAt != null && !entry.expiresAt!.isAfter(now)) {
+        return false;
+      }
+      if (entry.scheduledFor != null && entry.scheduledFor!.isAfter(now)) {
+        return false;
+      }
+      if (entry.nextRetryAt != null && entry.nextRetryAt!.isAfter(now)) {
+        return false;
+      }
+      return true;
+    }).length;
+  }
 
   /// Lists all available queues
   Future<List<String>> listQueues();

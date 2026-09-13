@@ -614,6 +614,23 @@ class IsarStorage implements StorageInterface {
   }
 
   @override
+  Future<int> countReady(String queueName) async {
+    await _ready();
+    final now = DateTime.now();
+
+    // Mirrors the predicate _retrieveInternal selects candidates with, so the
+    // two cannot drift into disagreeing about what "ready" means.
+    return _byQueueAndStatus(queueName, EntryStatus.pending)
+        .filter()
+        .group((q) => q.expiresAtIsNull().or().expiresAtGreaterThan(now))
+        .group((q) =>
+            q.scheduledForIsNull().or().scheduledForLessThan(now, include: true))
+        .group((q) =>
+            q.nextRetryAtIsNull().or().nextRetryAtLessThan(now, include: true))
+        .count();
+  }
+
+  @override
   Future<List<String>> listQueues() async {
     await _ready();
     final queues = await _isar.queueCollections.where().findAll();

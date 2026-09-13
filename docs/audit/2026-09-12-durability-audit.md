@@ -51,7 +51,9 @@ landed; this table is the index.
 | M8 | Dead-lettered and expired entries keep their lock | Fixed |
 | M10 | Lock acquisition swallows every error as contention | Fixed |
 | M13 | No schema version, no migration path | Fixed (unblocks the two deferred decisions) |
-| M7, M9, M11, M12, M14 | Contract, clarity and dead weight | **Open** |
+| M7 | Queue length counts jobs that cannot be dequeued | Fixed (`countReady` added; `count` unchanged) |
+| M9 | Metrics and health checks are inert | Fixed |
+| M11, M12, M14 | Contract, clarity and dead weight | **Open** |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
@@ -797,6 +799,59 @@ entry ids are unique across the storage rather than per queue; both would change
 what existing databases mean, and until now there was no way to carry a field
 database across such a change. There is now. Neither decision is revisited here —
 they remain open, but they are no longer blocked.
+
+### Status: M7 and M9 fixed
+
+**M7.** Reproduced with two entries — one scheduled for tomorrow, one waiting
+out a backoff. `queue.length` reported 2 while `processNext` found nothing and
+`dequeue` returned null.
+
+`count` is unchanged and still reports the backlog, because "how much is in this
+queue" is a fair question and an entry due tomorrow is in it. What was missing
+is the other figure, so `countReady` was added to the interface and both
+backends, with `Queue.readyLength` in front of it. Each backend's query mirrors
+its own retrieval predicate directly, and a test asserts the two agree by
+draining the queue and counting what came out.
+
+The interface carries a working default that filters `retrieveAll`, which is
+correct for any backend and reads every entry. `implements` copies signatures
+only, so a custom backend still has to declare it — that is a compile error
+rather than a runtime surprise, which is the better of the two.
+
+**M9** turned out to have a layer under it. The finding is that no library code
+records a metric, so every rate reads zero; that is true, and a queue can now be
+given a `QueueMetrics` and records enqueues, dequeues, completions, failures,
+latencies and processing times against it. `QueueManager` takes one too, so an
+application's queues report to a single collector.
+
+The layer underneath: **the health check API was never exported**. The README
+documents `HealthCheckAggregator`, `StorageHealthCheck`, `MetricsHealthCheck`
+and `QueueHealthCheck`, and `lib/duraq.dart` exported none of them, so a reader
+following the README got "Method not found". The existing test passed only
+because it imported the `src/` path directly — a test reaching around the public
+API and therefore unable to notice that the API was not there.
+
+Both checks were reporting on queues that did not exist: `MetricsHealthCheck`
+probed one named `health-check`, `QueueHealthCheck` asked for the size of one
+named `default`. `QueueHealthCheck` now reads every queue the storage knows
+about — or the ones it is told to watch — and reports waiting and ready counts
+per queue from the storage itself, which is where M7 pays off: its optional
+`maxReadyBacklog` threshold is compared against work that can be done now, so a
+queue full of entries scheduled for next week does not read as falling behind.
+
+Writing the tests turned up one design point worth recording. `getErrorRate` is
+`errors / throughput`, so recording throughput only on success made the rate
+exceed 1: three failures against one success read as 3.0. Throughput counts
+attempts, and the rate is the share of attempts that failed.
+
+Running the health check also samples each queue's size into the collector,
+which is what makes `getCurrentQueueSize` report anything at all — nothing else
+ever called `recordQueueSize`, so that metric would otherwise have stayed dead
+in a fix aimed at exactly that.
+
+The old health test asserted `details['queueSize'] == 5` after recording a size
+against the queue named `default`. It encoded the defect, so it was rewritten
+rather than kept.
 
 ## Test suite and process (Q1–Q6)
 

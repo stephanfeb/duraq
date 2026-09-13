@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:uuid/uuid.dart';
 
 import 'codec.dart';
+import 'metrics/queue_metrics.dart';
 import 'payload_translator.dart';
 import 'queue_entry.dart';
 import 'retry/retry_policy.dart';
@@ -27,13 +28,26 @@ class Queue<T> {
   /// queue to types `jsonEncode` accepts.
   final QueueCodec<T>? codec;
 
+  /// Where this queue reports what it did, if anywhere.
+  ///
+  /// Nothing in the library recorded a metric before, so every rate a
+  /// `QueueMetrics` could report read zero however busy the system was. Pass
+  /// one here and enqueues, dequeues, completions, failures and processing
+  /// times are recorded as they happen, each labelled with this queue's name.
+  final QueueMetrics? metrics;
+
   /// Creates a new queue.
   ///
   /// Payloads are stored as JSON. Pass a [codec] for a payload type
   /// `jsonEncode` cannot represent on its own; without one, enqueueing such a
   /// type throws [PayloadCodecException].
-  Queue(this.name, this._storage, {RetryPolicy? retryPolicy, this.codec})
-      : _retryPolicy = retryPolicy,
+  Queue(
+    this.name,
+    this._storage, {
+    RetryPolicy? retryPolicy,
+    this.codec,
+    this.metrics,
+  })  : _retryPolicy = retryPolicy,
         _payload = PayloadTranslator<T>(name, codec);
 
   final PayloadTranslator<T> _payload;
@@ -52,7 +66,7 @@ class Queue<T> {
       expiresAt: ttl != null ? DateTime.now().add(ttl) : null,
     );
 
-    await _store(entry);
+    await _timed(QueueOperation.enqueue, () => _store(entry));
   }
 
   /// Adds a pre-built QueueEntry to the queue.
@@ -66,7 +80,10 @@ class Queue<T> {
     QueueEntry<T> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) async {
-    await _store(entry.withData(_encode(entry.data)), onConflict: onConflict);
+    await _timed(
+      QueueOperation.enqueue,
+      () => _store(entry.withData(_encode(entry.data)), onConflict: onConflict),
+    );
   }
 
   /// Takes the next item off the queue and returns its payload.
@@ -81,18 +98,30 @@ class Queue<T> {
   /// policy, and a consumer that dies mid-flight has its entry reclaimed.
   ///
   /// Returns null when the queue has nothing ready.
-  Future<T?> dequeue() {
-    return _storage.transaction<T?>(() async {
-      final claimed = await _storage.retrieve(name);
-      if (claimed == null) return null;
+  Future<T?> dequeue() async {
+    final stopwatch = Stopwatch()..start();
+    var took = false;
+    try {
+      final data = await _storage.transaction<T?>(() async {
+        final claimed = await _storage.retrieve(name);
+        if (claimed == null) return null;
 
-      // Decode before the delete, inside the transaction. A codec that throws
-      // then rolls the claim back and leaves the entry in the queue, instead
-      // of destroying a payload nobody could read.
-      final data = _decode(claimed.data);
-      await _storage.removeEntry(name, claimed.id);
+        // Decode before the delete, inside the transaction. A codec that
+        // throws then rolls the claim back and leaves the entry in the queue,
+        // instead of destroying a payload nobody could read.
+        final decoded = _decode(claimed.data);
+        await _storage.removeEntry(name, claimed.id);
+        took = true;
+        return decoded;
+      });
+      // An empty queue is not a dequeue. Counting it as one would make an idle
+      // consumer's polling look like throughput.
+      if (took) _recordDone(QueueOperation.dequeue, stopwatch.elapsed);
       return data;
-    });
+    } catch (e) {
+      _recordFailure(QueueOperation.dequeue, e, stopwatch.elapsed);
+      rethrow;
+    }
   }
 
   /// Processes the next item in the queue with the given callback
@@ -102,11 +131,16 @@ class Queue<T> {
     final entry = await _storage.retrieve(name);
     if (entry == null) return false;
 
+    final stopwatch = Stopwatch()..start();
     try {
       await processor(_decode(entry.data));
       await _markCompleted(entry.id, entry.leaseId);
+      final elapsed = stopwatch.elapsed;
+      _recordDone(QueueOperation.process, elapsed);
+      metrics?.recordProcessingTime(entry, elapsed);
       return true;
     } catch (e) {
+      _recordFailure(QueueOperation.process, e, stopwatch.elapsed);
       await _handleFailure(entry, e.toString());
       rethrow;
     }
@@ -162,8 +196,19 @@ class Queue<T> {
     );
   }
 
-  /// Returns the number of entries in the queue
+  /// The number of entries waiting in this queue, due or not.
+  ///
+  /// Includes entries scheduled for later and entries waiting out a retry
+  /// backoff, so a queue can report a length of five and hand out nothing.
+  /// Use [readyLength] for the number that can be worked on now.
   Future<int> get length => _storage.count(name);
+
+  /// The number of entries that could be handed out right now.
+  ///
+  /// Zero here means [processNext] returns false and [dequeue] returns null.
+  /// This is the figure a health check or an autoscaler wants; [length] counts
+  /// work that may not be due for days.
+  Future<int> get readyLength => _storage.countReady(name);
 
   Future<void> _store(
     QueueEntry<Object?> entry, {
@@ -176,6 +221,43 @@ class Queue<T> {
   Object? _encode(T data) => _payload.encode(data);
 
   T _decode(Object? stored) => _payload.decode(stored);
+
+  /// Runs [action], recording how long it took and whether it threw.
+  Future<R> _timed<R>(String operation, Future<R> Function() action) async {
+    if (metrics == null) return action();
+
+    final stopwatch = Stopwatch()..start();
+    try {
+      final result = await action();
+      _recordDone(operation, stopwatch.elapsed);
+      return result;
+    } catch (e) {
+      _recordFailure(operation, e, stopwatch.elapsed);
+      rethrow;
+    }
+  }
+
+  void _recordDone(String operation, Duration elapsed) {
+    final metrics = this.metrics;
+    if (metrics == null) return;
+    metrics.recordThroughput(operation, labels: _labels);
+    metrics.recordLatency(operation, elapsed, labels: _labels);
+  }
+
+  void _recordFailure(String operation, Object error, Duration elapsed) {
+    final metrics = this.metrics;
+    if (metrics == null) return;
+    // Throughput counts attempts, not successes: an error rate is errors over
+    // throughput, so leaving failures out of the denominator would let the
+    // rate exceed 1 and mean nothing.
+    metrics.recordThroughput(operation, labels: _labels);
+    metrics.recordError(operation, error, labels: _labels);
+    metrics.recordLatency(operation, elapsed, labels: _labels);
+  }
+
+  /// Every metric this queue records carries its name, so one collector can
+  /// serve several queues and still be read apart.
+  Map<String, String> get _labels => {'queue': name};
 
   /// Generates a unique ID for a queue entry
   String _generateId() {

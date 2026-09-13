@@ -1,10 +1,15 @@
 import 'codec.dart';
+import 'metrics/queue_metrics.dart';
 import 'queue.dart';
 import 'storage/storage_interface.dart';
 
 /// Manages multiple queues
 class QueueManager {
   final StorageInterface storage;
+
+  /// Passed to every queue this manager creates, so a whole application's
+  /// queues report to one collector without each call site saying so.
+  final QueueMetrics? metrics;
 
   /// Cached queues, keyed by name *and* element type.
   ///
@@ -16,7 +21,7 @@ class QueueManager {
   /// instance over the same stored entries.
   final Map<(String, Type), Queue<dynamic>> _queues = {};
 
-  QueueManager(this.storage);
+  QueueManager(this.storage, {this.metrics});
 
   /// Gets or creates a queue with the given name.
   ///
@@ -27,7 +32,7 @@ class QueueManager {
   Queue<T> queue<T>(String name, {QueueCodec<T>? codec}) =>
       _queues.putIfAbsent(
         (name, T),
-        () => Queue<T>(name, storage, codec: codec),
+        () => Queue<T>(name, storage, codec: codec, metrics: metrics),
       ) as Queue<T>;
 
   /// Lists all available queues

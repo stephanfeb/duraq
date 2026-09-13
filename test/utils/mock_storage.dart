@@ -63,6 +63,23 @@ class MockStorage implements StorageInterface {
     return _queues[queueName]?.length ?? 0;
   }
 
+  /// The worked example for a custom backend: `implements` copies signatures
+  /// only, so the interface's default body does not arrive here and this has
+  /// to be written out. It mirrors what `retrieve` would hand over.
+  @override
+  Future<int> countReady(String queueName) async {
+    final now = DateTime.now();
+    return _queues[queueName]
+            ?.where((entry) =>
+                entry.status == EntryStatus.pending &&
+                (entry.expiresAt == null || entry.expiresAt!.isAfter(now)) &&
+                (entry.scheduledFor == null ||
+                    !entry.scheduledFor!.isAfter(now)) &&
+                (entry.nextRetryAt == null || !entry.nextRetryAt!.isAfter(now)))
+            .length ??
+        0;
+  }
+
   @override
   Future<List<String>> listQueues() async {
     return _queues.keys.toList();

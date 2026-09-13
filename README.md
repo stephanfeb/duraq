@@ -44,8 +44,9 @@ void main() async {
     await emailQueue.processNext(processEmail);
 
     // Check queue status
-    final remaining = await emailQueue.length;
-    print('Remaining emails: $remaining');
+    final remaining = await emailQueue.length;      // everything waiting
+    final ready = await emailQueue.readyLength;     // what can be sent now
+    print('Remaining emails: $remaining ($ready ready)');
   } finally {
     // Clean up resources
     storage.dispose();
@@ -280,6 +281,20 @@ while (true) {
 // consumer if this one dies. Prefer it for work that must not be lost.
 while (await queue.processNext(processNotification)) {}
 ```
+
+### Queue Length and Ready Work
+
+Two different questions, two different figures:
+
+```dart
+await queue.length;       // entries waiting, due or not
+await queue.readyLength;  // entries that can be handed out right now
+```
+
+`length` counts everything pending, including entries scheduled for later and
+entries waiting out a retry backoff, so a queue can report a length of five and
+hand out nothing. `readyLength` counts what `processNext` and `dequeue` would
+actually find. Health checks and autoscalers want the second one.
 
 ### Delivery Guarantees
 
@@ -926,6 +941,10 @@ DuraQ provides comprehensive health monitoring capabilities to ensure your queue
 ### Usage
 
 ```dart
+// Queues only record metrics if you give them a collector
+final metrics = MemoryQueueMetrics();
+final manager = QueueManager(storage, metrics: metrics);
+
 // Create health checks
 final healthChecks = HealthCheckAggregator([
   StorageHealthCheck(storage),
@@ -934,7 +953,9 @@ final healthChecks = HealthCheckAggregator([
     storage,
     metrics,
     errorRateWindow: Duration(minutes: 5),
-    maxErrorRate: 0.1, // 10% threshold
+    maxErrorRate: 0.1,     // 10% of attempts failing is degraded
+    maxReadyBacklog: 1000, // work ready to run, not work scheduled for later
+    // queueNames: ['emails'], // defaults to every queue in the storage
   ),
 ]);
 
@@ -966,6 +987,16 @@ for (final result in results.values) {
 - Average processing time
 - Storage responsiveness
 - Metrics system status
+
+> **Metrics are recorded only by queues you give a collector to.** Pass
+> `metrics:` to `Queue` or `QueueManager`, or every rate reads zero however busy
+> the system is. A queue with a collector records enqueues, dequeues,
+> completions, failures, latencies and processing times, each labelled with the
+> queue's name, so one collector can serve every queue in an application.
+>
+> Throughput counts *attempts*, not successes, so `getErrorRate` is the share
+> of attempts that failed. Running `QueueHealthCheck` also samples each queue's
+> size, which is what makes `getCurrentQueueSize` report anything.
 
 ## Contributing
 

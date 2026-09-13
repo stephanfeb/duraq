@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- The health check API is now exported from `package:duraq/duraq.dart`.
+  `HealthCheck`, `StorageHealthCheck`, `MetricsHealthCheck`,
+  `QueueHealthCheck`, `HealthCheckAggregator`, `HealthStatus` and
+  `HealthCheckResult` were documented in the README but never exported, so
+  following the README gave "Method not found". The existing tests passed only
+  because they imported the `src/` path directly.
+- `QueueHealthCheck` now reports on the queues that exist. It asked the metrics
+  collector for the size of a queue called `default`, a name nothing in the
+  system used, so the figure was zero unless a caller happened to record one
+  there. It now reads every queue from the storage — or the ones named in the
+  new `queueNames` — and reports what is waiting and what is ready per queue.
+- `MetricsHealthCheck` no longer probes a queue called `health-check`, which
+  nothing used either. It reads the figures the collector holds for the system
+  as a whole and reports them.
 - `ExponentialBackoff.getRetryDelay()` no longer overflows. The delay was
   `baseDelay.inMilliseconds * pow(2, attempts)` in integer arithmetic, which
   wraps a 64-bit int at attempt 63. `maxDelay` could not catch the wrapped
@@ -110,6 +124,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
+- `StorageInterface` gained `countReady()`. Custom backends must declare it;
+  the interface's default body filters `retrieveAll`, which is correct but
+  reads every entry, so a real backend should answer with a query.
 - `IsarStorage.requiredSchemas` now includes `QueueMetaCollectionSchema`.
   Callers already passing `...IsarStorage.requiredSchemas` to `Isar.open` need
   no change and their databases upgrade in place. A caller that listed DuraQ's
@@ -199,6 +216,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by earlier versions. Those versions could store several rows for one
   entry; this collapses them, keeping the most recently updated row, and
   returns how many rows it removed. Run it once after upgrading.
+- `countReady()` on `StorageInterface`, both backends and `Queue.readyLength`:
+  the number of entries that can be handed out *now*. `count()` includes
+  entries scheduled for later and entries waiting out a retry backoff, so a
+  queue could report a length of two and hand out nothing — an autoscaler
+  reading it scales up for work that is not due. `count()` is unchanged and
+  still reports the backlog; its documentation now says which is which. The
+  interface carries a working default that filters `retrieveAll`, but Dart's
+  `implements` copies signatures only, so a custom backend must declare it.
+- A `metrics` parameter on `Queue` and `QueueManager`. Nothing in the library
+  recorded a metric, so every rate a `QueueMetrics` could report read zero
+  however busy the system was. A queue given a collector now records enqueues,
+  dequeues, completions, failures, latencies and processing times, each
+  labelled with the queue's name. Throughput counts attempts rather than
+  successes, so `getErrorRate` stays a proportion.
+- `maxReadyBacklog` on `QueueHealthCheck`, which reports degraded when too much
+  work is ready to run. Deliberately compared against ready rather than
+  waiting: a queue full of entries scheduled for next week is not falling
+  behind. Running the check also samples each queue's size into the metrics
+  collector, so `getCurrentQueueSize` stops reading zero forever.
 - Schema versioning on both backends. SQLite records its version in the
   `user_version` pragma; Isar records it in a new `QueueMetaCollection` row,
   which is what Isar has no equivalent of. A database written by a newer DuraQ

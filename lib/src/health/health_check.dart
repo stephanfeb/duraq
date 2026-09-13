@@ -58,21 +58,44 @@ class StorageHealthCheck implements HealthCheck {
   }
 }
 
-/// Health check for queue metrics
+/// Health check for queue metrics.
+///
+/// Reports whether the metrics collector answers. It used to ask for the size
+/// of a queue called `health-check`, a name nothing in the system ever used, so
+/// it reported healthy whatever the collector held.
 class MetricsHealthCheck implements HealthCheck {
   final QueueMetrics metrics;
 
-  MetricsHealthCheck(this.metrics);
+  /// How far back the probe reads. Only affects which figures come back, not
+  /// whether the check passes.
+  final Duration window;
+
+  MetricsHealthCheck(
+    this.metrics, {
+    this.window = const Duration(minutes: 5),
+  });
 
   @override
   Future<HealthCheckResult> check() async {
     try {
-      // Check if metrics system is responsive
-      await metrics.getCurrentQueueSize('health-check');
+      // Read figures the collector holds for the system as a whole, rather
+      // than for one invented queue name.
+      final processed = await metrics.getThroughputRate(
+        QueueOperation.process,
+        window: window,
+      );
+      final averageProcessingTime =
+          await metrics.getAverageProcessingTime(window: window);
+
       return HealthCheckResult(
         component: 'metrics',
         status: HealthStatus.healthy,
         message: 'Metrics system is functioning normally',
+        details: {
+          'processedPerSecond': processed,
+          'avgProcessingTimeMs': averageProcessingTime.inMilliseconds,
+          'windowMinutes': window.inMinutes,
+        },
       );
     } catch (e) {
       return HealthCheckResult(
@@ -85,40 +108,81 @@ class MetricsHealthCheck implements HealthCheck {
   }
 }
 
-/// Health check for queue operations
+/// Health check for queue operations.
+///
+/// Reports on the queues that actually exist, using the storage as the source
+/// of truth for how much work is waiting and the metrics collector for how
+/// that work has been going. It used to ask the metrics collector for the size
+/// of a queue called `default`, which meant it reported on a queue the system
+/// generally did not have.
+///
+/// Running the check records each queue's size through [metrics], so a system
+/// that checks its health on a timer also gets a history of queue sizes.
 class QueueHealthCheck implements HealthCheck {
   final StorageInterface storage;
   final QueueMetrics metrics;
+
+  /// The queues to report on. Null means every queue the storage knows about,
+  /// which is the useful default for "is this system healthy".
+  final List<String>? queueNames;
+
   final Duration errorRateWindow;
   final double maxErrorRate;
+
+  /// Ready entries above which the queue is reported degraded, if set.
+  ///
+  /// Compared against work that can be done *now*, not the backlog: entries
+  /// scheduled for next week are not a sign of anything being wrong.
+  final int? maxReadyBacklog;
 
   QueueHealthCheck(
     this.storage,
     this.metrics, {
+    this.queueNames,
     this.errorRateWindow = const Duration(minutes: 5),
     this.maxErrorRate = 0.1, // 10% error rate threshold
+    this.maxReadyBacklog,
   });
 
   @override
   Future<HealthCheckResult> check() async {
     try {
-      // Check error rate
+      final names = queueNames ?? await storage.listQueues();
+
+      var totalWaiting = 0;
+      var totalReady = 0;
+      final perQueue = <String, Map<String, int>>{};
+
+      for (final name in names) {
+        final waiting = await storage.count(name);
+        final ready = await storage.countReady(name);
+        totalWaiting += waiting;
+        totalReady += ready;
+        perQueue[name] = {'waiting': waiting, 'ready': ready};
+
+        // Running this check is the only moment anything counts a queue, so it
+        // is also where the size gets sampled. Without this,
+        // `getCurrentQueueSize` reads zero forever, which is what made the
+        // metric worth nothing before.
+        metrics.recordQueueSize(name, waiting);
+      }
+
       final errorRate = await metrics.getErrorRate(
-        'process',
+        QueueOperation.process,
         window: errorRateWindow,
       );
-
-      // Check queue size
-      final queueSize = await metrics.getCurrentQueueSize('default');
-
-      // Check processing time
       final avgProcessingTime = await metrics.getAverageProcessingTime(
         window: errorRateWindow,
       );
 
-      final details = {
+      final details = <String, dynamic>{
         'errorRate': errorRate,
-        'queueSize': queueSize,
+        // Waiting counts everything pending; ready counts what can be handed
+        // out now. Scaling on the first is how a queue full of work scheduled
+        // for tomorrow looks like a queue that is falling behind.
+        'waiting': totalWaiting,
+        'ready': totalReady,
+        'queues': perQueue,
         'avgProcessingTime': avgProcessingTime.inMilliseconds,
       };
 
@@ -131,10 +195,22 @@ class QueueHealthCheck implements HealthCheck {
         );
       }
 
+      if (maxReadyBacklog != null && totalReady > maxReadyBacklog!) {
+        return HealthCheckResult(
+          component: 'queue',
+          status: HealthStatus.degraded,
+          message: 'Ready backlog of $totalReady is above '
+              'the limit of $maxReadyBacklog',
+          details: details,
+        );
+      }
+
       return HealthCheckResult(
         component: 'queue',
         status: HealthStatus.healthy,
-        message: 'Queue is operating normally',
+        message: names.isEmpty
+            ? 'No queues exist yet'
+            : 'Queue is operating normally',
         details: details,
       );
     } catch (e) {

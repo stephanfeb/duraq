@@ -821,6 +821,30 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
+  Future<int> countReady(String queueName) => _exclusive(
+        () => _countReady(queueName),
+      );
+
+  /// Mirrors the predicate [_retrieveInternal] selects candidates with, so the
+  /// two cannot drift into disagreeing about what "ready" means.
+  Future<int> _countReady(String queueName) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final result = _db.select(
+      '''
+      SELECT COUNT(*) as count
+      FROM queue_entries
+      WHERE queue_name = ?
+      AND status = ?
+      AND (expires_at IS NULL OR expires_at > ?)
+      AND (scheduled_for IS NULL OR scheduled_for <= ?)
+      AND (next_retry_at IS NULL OR next_retry_at <= ?)
+      ''',
+      [queueName, EntryStatus.pending.name, now, now, now],
+    );
+    return result.first['count'] as int;
+  }
+
+  @override
   Future<List<String>> listQueues() => _exclusive(_listQueues);
 
   Future<List<String>> _listQueues() async {

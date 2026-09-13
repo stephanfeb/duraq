@@ -15,3 +15,4 @@ export 'src/retry/exponential_backoff.dart';
 export 'src/dead_letter/dead_letter_queue.dart';
 export 'src/concurrent.dart';
 export 'src/metrics.dart';
+export 'src/health/health_check.dart';
