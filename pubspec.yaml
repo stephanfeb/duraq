@@ -7,13 +7,13 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-  sqlite3: '>=2.1.0 <4.0.0'
+  sqlite3: '>=2.2.0 <4.0.0' # 2.2.0 is where updatedRows replaced getUpdatedRows
   path: ^1.8.0
   isar: ^3.1.0+1
   uuid: ^4.0.0
 
 dev_dependencies:
   lints: ^2.1.0
-  test: ^1.24.0
+  test: '>=1.25.0 <2.0.0' # failures-only reporter, used by tool/verify.sh
   isar_generator: ^3.1.0+1
   build_runner: ^2.4.7

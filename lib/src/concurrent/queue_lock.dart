@@ -103,7 +103,7 @@ class QueueLock {
     ''');
     try {
       stmt.execute([queueName, entryId, if (lockId != null) lockId]);
-      final changes = _db.getUpdatedRows();
+      final changes = _db.updatedRows;
       final key = _ownerKey(queueName, entryId);
       if (lockId == null || _ownedLocks[key] == lockId) {
         _ownedLocks.remove(key);
@@ -184,7 +184,7 @@ class QueueLock {
     try {
       for (final lockId in _ownedLocks.values) {
         stmt.execute([lockId]);
-        released += _db.getUpdatedRows();
+        released += _db.updatedRows;
       }
     } finally {
       stmt.dispose();

@@ -1,0 +1,55 @@
+# Runs the same gate as tool/verify.sh, so a green local run and a green CI run
+# mean the same thing.
+#
+# Nothing has ever run here: the repository had no workflows before this file.
+# It starts working on the first push, once Actions is enabled for the repo.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # The gate. A red run here means the branch is not fit to merge.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - run: dart pub get
+      # The Isar tests fetch the native core on first use, so this step needs
+      # network access.
+      - run: tool/verify.sh
+
+  # Everything below reports, and none of it blocks.
+  advisory:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # pubspec claims to support Dart 3.0 and up. Nothing has ever built on
+          # 3.0, so this reports whether the claim is true rather than gating on
+          # it.
+          - name: oldest supported SDK
+            sdk: '3.0'
+            command: tool/verify.sh
+          # The suite leans on real databases and wall-clock waits (finding Q6),
+          # so one green run is weaker evidence than it looks. Repeating it
+          # surfaces the flakes that only appear under load.
+          - name: flake watch
+            sdk: stable
+            command: tool/verify.sh --flake 3
+    name: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - run: dart pub get
+      - run: ${{ matrix.command }}

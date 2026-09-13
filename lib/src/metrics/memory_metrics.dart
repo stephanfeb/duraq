@@ -69,7 +69,7 @@ class MemoryQueueMetrics implements QueueMetrics {
   }
 
   @override
-  void recordProcessingTime(QueueEntry entry, Duration duration) {
+  void recordProcessingTime(QueueEntry<dynamic> entry, Duration duration) {
     _addMetric(
       _processingTimeMetrics,
       'processing',

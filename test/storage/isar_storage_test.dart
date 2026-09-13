@@ -1,9 +1,8 @@
 import 'dart:io';
 import 'package:test/test.dart';
-import 'package:path/path.dart' as path;
 import 'package:isar/isar.dart';
-import '../../lib/src/storage/isar_storage.dart';
-import '../../lib/src/queue_entry.dart';
+import 'package:duraq/src/storage/isar_storage.dart';
+import 'package:duraq/src/queue_entry.dart';
 
 void main() {
   group('IsarStorage', () {

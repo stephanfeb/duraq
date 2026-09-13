@@ -34,7 +34,7 @@ abstract class QueueMetrics {
   void recordQueueSize(String queueName, int size);
 
   /// Records entry processing time
-  void recordProcessingTime(QueueEntry entry, Duration duration);
+  void recordProcessingTime(QueueEntry<dynamic> entry, Duration duration);
 
   /// Gets the average latency for an operation
   Future<Duration> getAverageLatency(String operation, {Duration? window});

@@ -95,7 +95,13 @@ void main() {
 
       // The driver blocks the isolate while it waits, so the wait is spent in
       // short slices. Other work has to keep running in between.
-      expect(ticks, greaterThan(5),
+      //
+      // The bar is deliberately low. What this proves is that the isolate is
+      // not held for the whole wait: a blocking implementation scores exactly
+      // zero here, whatever the machine is doing. How far above zero the count
+      // lands is a function of load, and asserting on that is what made this
+      // test flaky under a parallel run.
+      expect(ticks, greaterThanOrEqualTo(2),
           reason: 'timers should still fire while a write waits its turn');
     });
 

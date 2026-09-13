@@ -47,9 +47,9 @@ landed; this table is the index.
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
-| Q4 | No CI, no lint configuration | **Open** |
+| Q4 | No CI, no lint configuration | Fixed |
 | Q5 | Untested behaviours are the ones that fail | Mostly closed; TTL of an in-flight entry and dead-letter lock release are still untested |
-| Q6 | Tests lean on real databases and wall-clock waits | **Open**. One added test flaked under parallel load and was changed to poll rather than sleep for a fixed margin; the same pattern is still used elsewhere |
+| Q6 | Tests lean on real databases and wall-clock waits | Partly: two flaky assertions found and fixed, and `tool/verify.sh --flake` now hunts for more. The suite still uses real databases and real elapsed time |
 
 ### Where the work lives
 
@@ -102,10 +102,15 @@ retrieval path (H4); the Isar backend rewrite (C5, C6, H5); the interface work
 ### Verifying
 
 ```
-dart test          # 166 tests
-dart analyze       # 2 deprecation notices outside generated code
+tool/verify.sh             # the gate: strict analyze, then the suite
+tool/verify.sh --flake 5   # the suite five times, to hunt timing flakes
+tool/install-hooks.sh      # run the gate before every push
+
 dart run build_runner build --delete-conflicting-outputs   # after model edits
 ```
+
+The gate is 182 tests and a clean `dart analyze --fatal-infos
+--fatal-warnings`, in about five seconds.
 
 Multi-process behaviour was stressed with two OS processes writing one file,
 twenty runs, zero failures. `test/storage/contention_test.dart` covers the same
@@ -646,6 +651,56 @@ Two further measurements worth acting on:
 | Q4 | High | **No CI and no lint configuration.** No `.github` directory, so nothing runs the suite on a push. No `analysis_options.yaml`, so the `lints` dev dependency is never applied. `dart analyze` reports 40 issues under defaults, including two deprecated `getUpdatedRows` calls on the lock path. |
 | Q5 | Medium | **The untested behaviours are the ones that fail.** Nothing covers crash recovery, retry timing, lease expiry, multi-process access, duplicate identifiers, dead-letter lock release, TTL of an in-flight entry, or behaviour at any real backlog size. Every critical defect sits in that gap. |
 | Q6 | Medium | **Tests lean on real databases and wall-clock waits.** `test/utils/mock_storage.dart` is present but unused; timing-sensitive assertions rely on real delays. Both will turn flaky on shared CI hardware. |
+
+
+### Status: Q4 fixed, Q6 partly
+
+**Q4.** There is now one gate, `tool/verify.sh`, which runs
+`dart analyze --fatal-infos --fatal-warnings` and then the suite. Three things
+call it: a developer, the `pre-push` hook in `.githooks/` (installed by
+`tool/install-hooks.sh`, which sets `core.hooksPath` so the hook is version
+controlled rather than copied), and `.github/workflows/ci.yml`. The whole gate
+takes about five seconds, which is why it is affordable on every push.
+
+`analysis_options.yaml` finally applies the `lints` dependency that has been
+declared since 1.0.0. It adds `strict-casts`, `strict-raw-types` and eight rules
+chosen for the failure modes this audit found, `unawaited_futures` and
+`discarded_futures` above all — a silently dropped future is the shape C1
+through C4 all shared. Generated Isar code is excluded; `test/analysis_options.yaml`
+turns off `only_throw_errors` and `avoid_slow_async_io`, which are about shipped
+code rather than tests.
+
+Clearing the 40 pre-existing issues took four changes, none of them behavioural:
+29 raw generic types written out as `QueueEntry<dynamic>`, two unused imports
+removed, two relative `../../lib` imports in `isar_storage_test.dart` changed to
+package imports, and the two deprecated `getUpdatedRows()` calls replaced with
+`updatedRows`. That last one moved the `sqlite3` floor from 2.1.0 to 2.2.0,
+which is where the replacement landed.
+
+`dart analyze` now reports nothing at all, for the first time in the package's
+history.
+
+The gate was checked in both directions rather than assumed: with an unused
+import added it exits 1 on the analyze step, and with one deliberately broken
+expectation it exits 1 on the test step. CI on the oldest supported SDK is a
+separate, non-blocking job, because the `>=3.0.0` floor in pubspec has never
+been built and reporting on an untested claim is not the same as gating on it.
+
+**Q6.** `tool/verify.sh --flake N` runs the suite N times. It found a real flake
+on its second run: `contention_test.dart` asserted that more than five timer
+ticks land during a 300 ms contended write, and a loaded machine delivered four.
+The property worth asserting is that the isolate is not held for the entire
+wait, and a blocking implementation scores exactly zero on that regardless of
+load, so the bar is now two. Three consecutive runs pass, including three with
+six cores deliberately saturated.
+
+That is two timing assertions found and fixed this way. The underlying finding
+stands: the suite still drives real databases and real elapsed time, and
+`test/utils/mock_storage.dart` is still barely used.
+
+The format check is deliberately **not** in the gate. Dart 3.11 formats in the
+tall style, which rewrites 35 of the 46 source files, and restyling a published
+package is a decision for its owner rather than a side effect of adding CI.
 
 Line coverage by file, 84 tests, generated code excluded:
 

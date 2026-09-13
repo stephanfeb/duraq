@@ -1,7 +1,6 @@
 import 'package:test/test.dart';
 import 'package:duraq/src/queue_entry.dart';
 import 'package:duraq/src/storage/sqlite_storage.dart';
-import 'package:duraq/src/storage/storage_interface.dart';
 import 'dart:io';
 
 void main() {

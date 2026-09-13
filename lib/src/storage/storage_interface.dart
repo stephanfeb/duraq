@@ -38,12 +38,12 @@ abstract class StorageInterface {
   /// default a `DuplicateEntryException` is thrown.
   Future<void> store(
     String queueName,
-    QueueEntry entry, {
+    QueueEntry<dynamic> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   });
 
   /// Retrieves the next entry from the queue
-  Future<QueueEntry?> retrieve(String queueName);
+  Future<QueueEntry<dynamic>?> retrieve(String queueName);
 
   /// Returns the number of entries in a queue
   Future<int> count(String queueName);
@@ -97,7 +97,7 @@ abstract class StorageInterface {
   Future<int> countDeadLetters(String queueName);
 
   /// Retrieves all entries in the queue
-  Future<List<QueueEntry>> retrieveAll(String queueName);
+  Future<List<QueueEntry<dynamic>>> retrieveAll(String queueName);
 
   /// Checks if the storage is responsive
   Future<void> ping();

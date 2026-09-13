@@ -2,7 +2,7 @@ import 'package:duraq/duraq.dart';
 
 /// A mock implementation of StorageInterface for testing
 class MockStorage implements StorageInterface {
-  final Map<String, List<QueueEntry>> _queues = {};
+  final Map<String, List<QueueEntry<dynamic>>> _queues = {};
   bool _inTransaction = false;
 
   /// Mock ping response for health checks
@@ -82,7 +82,7 @@ class MockStorage implements StorageInterface {
   }
 
   @override
-  Future<QueueEntry?> retrieve(String queueName) async {
+  Future<QueueEntry<dynamic>?> retrieve(String queueName) async {
     final queue = _queues[queueName];
     if (queue == null || queue.isEmpty) return null;
 
@@ -103,7 +103,7 @@ class MockStorage implements StorageInterface {
   @override
   Future<void> store(
     String queueName,
-    QueueEntry entry, {
+    QueueEntry<dynamic> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) async {
     final entries = _queues.putIfAbsent(queueName, () => []);
@@ -230,7 +230,7 @@ class MockStorage implements StorageInterface {
   }
 
   @override
-  Future<List<QueueEntry>> retrieveAll(String queueName) async {
+  Future<List<QueueEntry<dynamic>>> retrieveAll(String queueName) async {
     return _queues[queueName]?.toList() ?? [];
   }
 

@@ -137,6 +137,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by earlier versions. Those versions could store several rows for one
   entry; this collapses them, keeping the most recently updated row, and
   returns how many rows it removed. Run it once after upgrading.
+- `tool/verify.sh`, the project's gate: `dart analyze --fatal-infos
+  --fatal-warnings` followed by the test suite. `tool/verify.sh --flake N` runs
+  the suite N times instead, to surface timing flakes. `tool/install-hooks.sh`
+  points git at `.githooks/`, whose `pre-push` hook runs the gate before
+  anything leaves the machine.
+- `analysis_options.yaml`. The `lints` dev dependency has been declared since
+  1.0.0 but was never applied, because nothing told the analyzer to use it.
+  Generated Isar code is excluded; `test/analysis_options.yaml` relaxes two
+  rules that only make sense for shipped code.
+- A GitHub Actions workflow running the same script. The repository had no
+  workflows before, so nothing had ever been checked automatically. A second,
+  non-blocking job reports whether the advertised Dart 3.0 floor still builds
+  and re-runs the suite to watch for flakes.
 
 ### Changed
 - Operations on a `SQLiteStorage` instance are serialized, and calls made from
@@ -145,6 +158,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `beginTransaction()` now holds exclusive access to the storage until the
   transaction is committed or rolled back. A manual transaction that is never
   closed will block later operations; prefer `transaction()`.
+- Raw generic types are written out. `QueueEntry` in a signature now reads
+  `QueueEntry<dynamic>`, which is the same type spelled honestly: the storage
+  layer is untyped by design. No behaviour changes.
+- `sqlite3` now requires 2.2.0 or later, up from 2.1.0, which is the version
+  that replaced the deprecated `getUpdatedRows()` with `updatedRows`. The
+  package already resolved well above this floor in practice.
+- `test` now requires 1.25.0 or later, for the reporter `tool/verify.sh` uses.
+  Dev dependency only; consumers are unaffected.
 
 ## [1.0.0] - 2026-03-22
 

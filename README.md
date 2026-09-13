@@ -874,7 +874,35 @@ for (final result in results.values) {
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines and submit pull requests to our repository.
+Contributions are welcome. One command checks everything that has to hold:
+
+```bash
+tool/verify.sh
+```
+
+It runs `dart analyze --fatal-infos --fatal-warnings` and the test suite, and
+takes a few seconds. The GitHub workflow runs the same script, so a green run
+locally and a green run on CI mean the same thing.
+
+Install the pre-push hook once and it runs for you before every push:
+
+```bash
+tool/install-hooks.sh
+```
+
+The hook lives in `.githooks/` and is version controlled rather than copied into
+`.git/hooks`. Skip it for a single push with `git push --no-verify`.
+
+The suite uses real databases and real elapsed time, so a single green run is
+weaker evidence than it looks. To hunt timing flakes, run it repeatedly:
+
+```bash
+tool/verify.sh --flake 5
+```
+
+Lint configuration lives in `analysis_options.yaml`, with two rules relaxed for
+the test tree in `test/analysis_options.yaml`. Generated Isar code is excluded
+from analysis; it is not ours to fix.
 
 ## License
 

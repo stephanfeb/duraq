@@ -62,7 +62,7 @@ void main() {
       );
 
   /// Retrieves as soon as an entry becomes available, giving up after [limit].
-  Future<QueueEntry?> retrieveWithin(
+  Future<QueueEntry<dynamic>?> retrieveWithin(
     StorageInterface storage,
     String queueName,
     Duration limit,

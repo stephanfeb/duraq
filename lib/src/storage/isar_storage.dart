@@ -75,7 +75,7 @@ class IsarStorage implements StorageInterface {
   ///   // your other schemas...
   /// ]);
   /// ```
-  static List<CollectionSchema> get requiredSchemas => [
+  static List<CollectionSchema<dynamic>> get requiredSchemas => [
     QueueCollectionSchema,
     QueueEntryCollectionSchema,
     QueueLockCollectionSchema,
@@ -183,7 +183,7 @@ class IsarStorage implements StorageInterface {
   @override
   Future<void> store(
     String queueName,
-    QueueEntry entry, {
+    QueueEntry<dynamic> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) async {
     _checkDisposed();
@@ -261,7 +261,7 @@ class IsarStorage implements StorageInterface {
   }
 
   @override
-  Future<QueueEntry?> retrieve(String queueName) async {
+  Future<QueueEntry<dynamic>?> retrieve(String queueName) async {
     _checkDisposed();
 
     return await IsarWriteScope.run(
@@ -377,7 +377,7 @@ class IsarStorage implements StorageInterface {
   }
 
   /// Internal method to retrieve an entry without transaction handling
-  Future<QueueEntry?> _retrieveInternal(String queueName) async {
+  Future<QueueEntry<dynamic>?> _retrieveInternal(String queueName) async {
     final now = DateTime.now();
 
     // Take back anything a dead consumer left claimed before looking for work.
@@ -588,7 +588,7 @@ class IsarStorage implements StorageInterface {
   }
 
   /// Retrieves all entries with a specific status from a queue
-  Future<List<QueueEntry>> getEntriesByStatus(
+  Future<List<QueueEntry<dynamic>>> getEntriesByStatus(
     String queueName,
     EntryStatus status,
   ) async {
@@ -686,7 +686,7 @@ class IsarStorage implements StorageInterface {
   }
 
   @override
-  Future<List<QueueEntry>> retrieveAll(String queueName) async {
+  Future<List<QueueEntry<dynamic>>> retrieveAll(String queueName) async {
     _checkDisposed();
 
     final entries = await _isar.queueEntryCollections

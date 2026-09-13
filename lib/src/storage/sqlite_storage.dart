@@ -387,7 +387,7 @@ class SQLiteStorage implements StorageInterface {
   @override
   Future<void> store(
     String queueName,
-    QueueEntry entry, {
+    QueueEntry<dynamic> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) {
     _checkDisposed();
@@ -409,7 +409,7 @@ class SQLiteStorage implements StorageInterface {
   /// Internal method to store an entry without transaction handling
   void _storeInternal(
     String queueName,
-    QueueEntry entry,
+    QueueEntry<dynamic> entry,
     StoreConflict onConflict,
   ) {
     // Ensure queue exists
@@ -485,7 +485,7 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<QueueEntry?> retrieve(String queueName) {
+  Future<QueueEntry<dynamic>?> retrieve(String queueName) {
     _checkDisposed();
     return _exclusive(() async {
       // If we're already in a transaction, just execute the statements
@@ -620,7 +620,7 @@ class SQLiteStorage implements StorageInterface {
   }
 
   /// Internal method to retrieve an entry without transaction handling
-  Future<QueueEntry?> _retrieveInternal(String queueName) async {
+  Future<QueueEntry<dynamic>?> _retrieveInternal(String queueName) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
     // Take back anything a dead consumer left claimed before looking for work.
@@ -893,13 +893,13 @@ class SQLiteStorage implements StorageInterface {
   }
 
   /// Retrieves all entries with a specific status from a queue
-  Future<List<QueueEntry>> getEntriesByStatus(
+  Future<List<QueueEntry<dynamic>>> getEntriesByStatus(
     String queueName,
     EntryStatus status,
   ) =>
       _exclusive(() => _getEntriesByStatus(queueName, status));
 
-  Future<List<QueueEntry>> _getEntriesByStatus(
+  Future<List<QueueEntry<dynamic>>> _getEntriesByStatus(
     String queueName,
     EntryStatus status,
   ) async {
@@ -1098,10 +1098,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<List<QueueEntry>> retrieveAll(String queueName) =>
+  Future<List<QueueEntry<dynamic>>> retrieveAll(String queueName) =>
       _exclusive(() => _retrieveAll(queueName));
 
-  Future<List<QueueEntry>> _retrieveAll(String queueName) async {
+  Future<List<QueueEntry<dynamic>>> _retrieveAll(String queueName) async {
     _checkDisposed();
     
     final result = _db.select(

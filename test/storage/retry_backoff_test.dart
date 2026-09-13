@@ -28,7 +28,7 @@ void main() {
   ///
   /// Polling rather than sleeping for a fixed margin keeps the test honest
   /// about what it is asserting and stops it failing on a loaded machine.
-  Future<QueueEntry?> retrieveWithin(
+  Future<QueueEntry<dynamic>?> retrieveWithin(
     StorageInterface storage,
     String queueName,
     Duration limit,

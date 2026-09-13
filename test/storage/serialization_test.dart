@@ -83,7 +83,7 @@ void main() {
         List.generate(total * 2, (_) => storage.retrieve('test-queue')),
       );
 
-      final delivered = retrieved.whereType<QueueEntry>().toList();
+      final delivered = retrieved.whereType<QueueEntry<dynamic>>().toList();
       expect(delivered.length, equals(total));
       expect(delivered.map((e) => e.id).toSet().length, equals(total));
     });
@@ -99,7 +99,7 @@ void main() {
       final firstRound = await Future.wait(
         List.generate(5, (_) => storage.retrieve('test-queue')),
       );
-      expect(firstRound.whereType<QueueEntry>().length, equals(5));
+      expect(firstRound.whereType<QueueEntry<dynamic>>().length, equals(5));
 
       final leftPending = (await storage.retrieveAll('test-queue'))
           .where((e) => e.status == EntryStatus.pending);

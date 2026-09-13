@@ -4,7 +4,7 @@ import 'storage/storage_interface.dart';
 /// Manages multiple queues
 class QueueManager {
   final StorageInterface storage;
-  final Map<String, Queue> _queues = {};
+  final Map<String, Queue<dynamic>> _queues = {};
 
   QueueManager(this.storage);
 
