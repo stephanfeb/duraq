@@ -16,7 +16,7 @@ DuraQ is designed to provide a reliable queuing system with:
 1. Add to your `pubspec.yaml`:
 ```yaml
 dependencies:
-  duraq: ^2.0.0
+  duraq: ^3.0.0
 ```
 
 2. Create a queue manager with SQLite storage:
@@ -98,8 +98,8 @@ that a project using only SQLite does not resolve `isar` and its generated code:
 
 ```yaml
 dependencies:
-  duraq: ^2.0.0
-  duraq_isar: ^1.0.0
+  duraq: ^3.0.0
+  duraq_isar: ^2.0.0
 ```
 
 ```dart

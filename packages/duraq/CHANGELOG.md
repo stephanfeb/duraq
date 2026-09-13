@@ -5,7 +5,59 @@ All notable changes to DuraQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - 2026-09-14
+
+One semantic change: an entry id now identifies an entry **within its queue**,
+rather than across the whole database. Nothing else in the API moves.
+
+This is the change the 2.0.0 notes said should be revisited. It was deferred
+because rebuilding the SQLite table needed a migration path that did not exist
+yet; 2.0.0 built one, and this release uses it.
+
+**Existing databases are migrated in place on first open, and cannot be opened
+by 2.x afterwards.** Read *Upgrading from 2.0.x* below before deploying.
+
+### Upgrading from 2.0.x
+
+For most callers this is a no-op recompile: every method that takes an entry id
+already took a queue name beside it, so no call site changes shape.
+
+**1. Check whether you relied on ids being unique across the database.** You did
+if you used `DuplicateEntryException` to find out whether an id was in use
+*anywhere*, or if you treat an id as addressing an entry without saying which
+queue it is in. Both now need the queue name to be meaningful.
+
+```dart
+// Before: the second store threw, whatever queue it named.
+await storage.store('orders', entry('order-42'));
+await storage.store('shipping', entry('order-42'));  // DuplicateEntryException
+
+// Now: two queues, two entries, neither affecting the other.
+await storage.store('orders', entry('order-42'));
+await storage.store('shipping', entry('order-42'));  // fine
+```
+
+A repeated id *within one queue* is still a conflict, and `StoreConflict.replace`
+and `.ignore` still do exactly what they did.
+
+**2. Back up the database file if you may need to roll back.** The first open
+migrates it to schema version 2, and 2.x will then refuse it with a
+`SchemaVersionException` naming both versions. That refusal is deliberate: an
+older release would read the file as if ids were still global and could delete a
+second queue's entry under `StoreConflict.replace`. Refusing to open is the
+better failure.
+
+The migration itself is safe to interrupt — it runs in one transaction that
+rolls back whole — and cannot lose a row, because the version 1 key was strictly
+stricter than the version 2 key.
+
+**3. If you use the Isar backend**, move to `duraq_isar` 2.0.0 at the same time.
+The two release together.
+
+**4. If you implement `StorageInterface` yourself**, nothing forces a change —
+but your backend should now treat `(queueName, entryId)` as the identity of an
+entry. The shared conformance suite in `test/support/` covers this, and running
+your backend against it is the quickest way to find out where you stand.
 
 ### Breaking
 - **An entry id is now unique within its queue, not across the whole

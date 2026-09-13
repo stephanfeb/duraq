@@ -1,6 +1,35 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] - 2026-09-14
+
+Tracks `duraq` 3.0.0: an entry id now identifies an entry **within its queue**,
+rather than across the whole database.
+
+### Upgrading from 1.0.x
+
+**1. Move both packages together.** This release requires `duraq` 3.0.0.
+
+```yaml
+dependencies:
+  duraq: ^3.0.0
+  duraq_isar: ^2.0.0
+```
+
+**2. Check whether you relied on ids being unique across the database.** `store`
+no longer searches every queue for the id before writing, so two queues may each
+hold `order-42`. See the `duraq` 3.0.0 notes for what that affects.
+
+**3. Back up the database if you may need to roll back.** The first open records
+schema version 2, and duraq_isar 1.x will then refuse the database with a
+`SchemaVersionException`. Nothing in the file is rewritten — version 1 refused
+to store an id another queue held, so no version 1 database can contain anything
+the new rule disallows. The version exists purely so that an older release stops
+rather than opening a database whose entries it would misread: 1.x would treat a
+second queue's `order-42` as a duplicate of the first and delete it under
+`StoreConflict.replace`.
+
+**4. Nothing else changes.** `Isar.open` still takes
+`...IsarStorage.requiredSchemas`, and the collection set is unchanged.
 
 ### Breaking
 - **An entry id is now unique within its queue, not across the whole
