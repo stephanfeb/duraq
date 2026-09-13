@@ -91,7 +91,10 @@ void main() {
       });
 
       expect((await storage.retrieveAll('q')).single.data, equals('payload'));
-      expect(await storage.storedSchemaVersion(), equals(1));
+      expect(await storage.storedSchemaVersion(),
+          equals(IsarStorage.schemaVersion),
+          reason: 'an unversioned database is taken to be at version 1 and '
+              'then walked up to the current version');
       expect((await storage.retrieve('q'))?.id, equals('e1'),
           reason: 'the queue still serves work after the upgrade');
     });

@@ -110,12 +110,52 @@ void contractSuite(String backend, StorageOpener open) {
           expect(stored.single.data, equals('original'));
         });
 
-        test('an id taken by another queue is a conflict too', () async {
-          // Entry ids are unique across the storage, not per queue.
+        test('an id taken by another queue is not a conflict', () async {
+          // Queues are namespaces: an id identifies an entry within its queue.
+          // Two producers writing `order-42` into queues of their own are not
+          // in each other's way, and until duraq 3.0.0 they were.
+          await storage.store('queue-a', entry('shared', data: 'from a'));
+          await storage.store('queue-b', entry('shared', data: 'from b'));
+
+          expect(await storage.count('queue-a'), equals(1));
+          expect(await storage.count('queue-b'), equals(1));
+
+          final a = await storage.retrieveAll('queue-a');
+          final b = await storage.retrieveAll('queue-b');
+          expect(a.single.data, equals('from a'));
+          expect(b.single.data, equals('from b'));
+        });
+
+        test('same-id entries in two queues stay independent', () async {
+          await storage.store('queue-a', entry('shared', data: 'from a'));
+          await storage.store('queue-b', entry('shared', data: 'from b'));
+
+          // Replacing one must not touch the other.
+          await storage.store(
+            'queue-a',
+            entry('shared', data: 'replaced in a'),
+            onConflict: StoreConflict.replace,
+          );
+          expect((await storage.retrieveAll('queue-b')).single.data,
+              equals('from b'));
+
+          // Nor must removing one.
+          await storage.removeEntry('queue-a', 'shared');
+          expect(await storage.count('queue-a'), equals(0));
+          expect(await storage.count('queue-b'), equals(1));
+
+          // Nor must a status change.
+          await storage.updateEntryStatus(
+              'queue-b', 'shared', EntryStatus.completed);
+          final b = await storage.retrieveAll('queue-b');
+          expect(b.single.status, equals(EntryStatus.completed));
+        });
+
+        test('a repeated id within one queue is still a conflict', () async {
           await storage.store('queue-a', entry('shared'));
 
           await expectLater(
-            storage.store('queue-b', entry('shared')),
+            storage.store('queue-a', entry('shared')),
             throwsA(isA<DuplicateEntryException>()),
           );
         });

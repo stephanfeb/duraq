@@ -41,10 +41,10 @@ class QueueCollection {
 class QueueEntryCollection {
   Id id = Isar.autoIncrement;
 
-  /// Indexed so a store can tell whether an id is already used by another
-  /// queue. Entry ids are unique across the storage, matching SQLite, where
-  /// the entry id is the table's primary key.
-  @Index()
+  /// Not indexed on its own. It was, so that a store could tell whether an id
+  /// was already used by *another* queue, back when ids had to be unique across
+  /// the whole database. Ids are per queue now, so every lookup goes through
+  /// [entryKey] and an index here would cost write time and buy nothing.
   late String entryId;
 
   /// Indexed with [expiresAt] so the expiry sweep on the retrieval path is a
@@ -77,11 +77,16 @@ class QueueEntryCollection {
 
   /// The identity of an entry: one row per queue and entry id.
   ///
-  /// Deliberately not a unique index. Databases written by earlier versions
-  /// may already hold duplicate rows for one entry, and Isar refuses to open a
-  /// database whose data violates a unique index, which would turn an upgrade
-  /// into a startup failure. `store` upserts through this index instead, and
-  /// `removeDuplicateEntries` collapses rows an earlier version left behind.
+  /// Deliberately not a unique index, and it cannot become one. Isar applies
+  /// indexes at `Isar.open`, before any migration can run, so a release that
+  /// marked this unique would fail to open a database holding duplicates —
+  /// measured, not assumed — with `IsarError: Unique index violated`. The
+  /// caller owns that `Isar.open` call and shares the instance with their own
+  /// collections, so the failure would take out their whole database, not just
+  /// the queue. `store` upserts through this index instead,
+  /// `removeDuplicateEntries` collapses rows an earlier version left behind,
+  /// and `isar_semantics_test.dart` asserts the invariant the index would have
+  /// enforced. See the Isar entry index decision in `docs/audit/`.
   @Index()
   String get entryKey => entryKeyFor(queueName, entryId);
 

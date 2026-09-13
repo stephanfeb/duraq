@@ -252,4 +252,197 @@ void main() {
     });
   });
 
+  group('schema version 2: entry ids become per queue', () {
+    late Directory tempDir;
+    late String dbPath;
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('duraq_schema_v2_');
+      dbPath = path.join(tempDir.path, 'duraq_v1.db');
+    });
+
+    tearDown(() {
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    /// Writes a genuine version 1 database: the shape duraq 2.0.0 shipped,
+    /// where `id` is the primary key on its own.
+    void writeVersion1Database({required List<(String, String)> entries}) {
+      final raw = sqlite3.open(dbPath);
+      raw.execute('CREATE TABLE queues (name TEXT PRIMARY KEY)');
+      raw.execute('''
+        CREATE TABLE queue_entries (
+          id TEXT PRIMARY KEY,
+          queue_name TEXT NOT NULL,
+          data TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          expires_at INTEGER,
+          scheduled_for INTEGER,
+          next_retry_at INTEGER,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          priority INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          error_message TEXT,
+          FOREIGN KEY (queue_name) REFERENCES queues(name)
+        )
+      ''');
+      raw.execute(
+        'CREATE INDEX idx_queue_entries_retrieval '
+        'ON queue_entries(queue_name, status, priority, created_at)',
+      );
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final (queue, id) in entries) {
+        raw.execute('INSERT OR IGNORE INTO queues (name) VALUES (?)', [queue]);
+        raw.execute(
+          'INSERT INTO queue_entries (id, queue_name, data, created_at, '
+          'updated_at, attempts, priority, status) '
+          'VALUES (?, ?, ?, ?, ?, 0, 0, ?)',
+          [id, queue, '"payload-$id"', now, now, EntryStatus.pending.name],
+        );
+      }
+      raw.execute('PRAGMA user_version = 1');
+      raw.dispose();
+    }
+
+    test('a version 1 database upgrades and keeps every entry', () async {
+      writeVersion1Database(entries: [
+        ('orders', 'a'),
+        ('orders', 'b'),
+        ('emails', 'c'),
+      ]);
+
+      final storage = SQLiteStorage(dbPath: dbPath);
+      addTearDown(storage.dispose);
+
+      expect(storage.storedSchemaVersion, equals(2));
+      expect(await storage.count('orders'), equals(2));
+      expect(await storage.count('emails'), equals(1));
+      expect(
+        (await storage.retrieveAll('emails')).single.data,
+        equals('payload-c'),
+      );
+    });
+
+    test('the upgraded database takes an id another queue already holds',
+        () async {
+      writeVersion1Database(entries: [('orders', 'order-42')]);
+
+      final storage = SQLiteStorage(dbPath: dbPath);
+      addTearDown(storage.dispose);
+
+      // The whole point of the migration: version 1 refused this.
+      await storage.store(
+        'shipping',
+        QueueEntry<String>(
+            id: 'order-42', data: 'from shipping', createdAt: DateTime.now()),
+      );
+
+      expect(await storage.count('orders'), equals(1));
+      expect(await storage.count('shipping'), equals(1));
+    });
+
+    test('the rebuilt table carries the primary key and its indexes',
+        () async {
+      writeVersion1Database(entries: [('orders', 'a')]);
+      SQLiteStorage(dbPath: dbPath).dispose();
+
+      final raw = sqlite3.open(dbPath);
+      addTearDown(raw.dispose);
+
+      // Both columns, in order, form the key.
+      final key = raw
+          .select("SELECT name FROM pragma_table_info('queue_entries') "
+              'WHERE pk > 0 ORDER BY pk')
+          .map((r) => r['name'] as String)
+          .toList();
+      expect(key, equals(['queue_name', 'id']));
+
+      // Dropping the old table dropped its indexes; the migration puts them
+      // back, and a retrieval that lost its index would still pass every
+      // behavioural test while scanning the table.
+      final indexes = raw
+          .select("SELECT name FROM sqlite_master WHERE type = 'index' "
+              "AND tbl_name = 'queue_entries' AND name LIKE 'idx_%'")
+          .map((r) => r['name'] as String)
+          .toSet();
+      expect(
+        indexes,
+        containsAll([
+          'idx_queue_entries_retrieval',
+          'idx_queue_entries_expiration',
+          'idx_queue_entries_queue_expiration',
+          'idx_queue_entries_retry',
+          'idx_queue_entries_scheduled',
+        ]),
+      );
+    });
+
+    test('a rebuild that fails after the drop loses nothing', () async {
+      writeVersion1Database(entries: [('orders', 'a'), ('orders', 'b')]);
+
+      // A *table* sitting on one of the index names. The rebuild gets all the
+      // way through the drop and the rename before `CREATE INDEX` hits it,
+      // which is the case that would lose data if the step were not atomic.
+      final raw = sqlite3.open(dbPath);
+      raw.execute('CREATE TABLE idx_queue_entries_expiration (x TEXT)');
+      raw.dispose();
+
+      expect(
+        () => SQLiteStorage(dbPath: dbPath),
+        throwsA(isA<SqliteException>().having(
+          (e) => e.toString(),
+          'message',
+          contains('idx_queue_entries_expiration'),
+        )),
+        reason: 'the step must fail on the index, which is after the drop; '
+            'failing earlier would make the rest of this test vacuous',
+      );
+
+      final after = sqlite3.open(dbPath);
+      addTearDown(after.dispose);
+      expect(
+        after.select('PRAGMA user_version').first.values.first,
+        equals(1),
+      );
+      expect(
+        after.select('SELECT COUNT(*) c FROM queue_entries').first['c'],
+        equals(2),
+        reason: 'the entries must still be there after a rolled-back rebuild',
+      );
+      expect(
+        after
+            .select("SELECT name FROM pragma_table_info('queue_entries') "
+                'WHERE pk > 0')
+            .map((r) => r['name'] as String),
+        equals(['id']),
+        reason: 'and the table must still be the version 1 shape',
+      );
+    });
+
+    test('a failed migration leaves the database at version 1', () async {
+      writeVersion1Database(entries: [('orders', 'a')]);
+
+      // A table already sitting on the name the rebuild wants, which makes the
+      // migration's first statement fail partway through the step.
+      final raw = sqlite3.open(dbPath);
+      raw.execute('CREATE TABLE queue_entries_v2 (wrong TEXT)');
+      raw.dispose();
+
+      expect(() => SQLiteStorage(dbPath: dbPath), throwsA(anything));
+
+      final after = sqlite3.open(dbPath);
+      addTearDown(after.dispose);
+      expect(
+        after.select('PRAGMA user_version').first.values.first,
+        equals(1),
+        reason: 'a rolled-back step must not record the version it aimed at',
+      );
+      expect(
+        after.select('SELECT COUNT(*) c FROM queue_entries').first['c'],
+        equals(1),
+        reason: 'the original table must survive a failed rebuild',
+      );
+    });
+  });
 }

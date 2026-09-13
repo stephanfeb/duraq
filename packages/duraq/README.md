@@ -16,7 +16,7 @@ DuraQ is designed to provide a reliable queuing system with:
 1. Add to your `pubspec.yaml`:
 ```yaml
 dependencies:
-  duraq: ^2.0.0
+  duraq: ^3.0.0
 ```
 
 2. Create a queue manager with SQLite storage:
@@ -98,8 +98,8 @@ that a project using only SQLite does not resolve `isar` and its generated code:
 
 ```yaml
 dependencies:
-  duraq: ^2.0.0
-  duraq_isar: ^1.0.0
+  duraq: ^3.0.0
+  duraq_isar: ^2.0.0
 ```
 
 ```dart
@@ -502,9 +502,11 @@ anything.
 
 ### Storing an Entry Twice
 
-Entry ids are unique across the storage, not per queue. `enqueue` generates one,
-so it cannot collide; `enqueueEntry` takes an entry you built yourself, which
-can. By default a collision throws `DuplicateEntryException`:
+An entry id identifies an entry within its queue. Two queues may each hold an
+entry called `order-42`; they are different entries, and nothing done to one
+touches the other. `enqueue` generates an id, so it cannot collide;
+`enqueueEntry` takes an entry you built yourself, which can. By default a
+collision throws `DuplicateEntryException`:
 
 ```dart
 try {
