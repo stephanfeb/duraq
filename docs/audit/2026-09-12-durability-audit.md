@@ -54,12 +54,13 @@ landed; this table is the index.
 ### Where the work lives
 
 Committed on branch `audit-remediation`, branched from `main` at `5315698`, not
-pushed. `7c78742` carries C1 to C6, H1 and H3 to H7; H2 follows it. One commit: the changes for different findings interleave
-inside the two storage files, and the intermediate states were never committed,
-so a per-finding split would have meant staging hunks by hand into commits
-nobody ever ran the tests against.
+pushed. `7c78742` carries C1 to C6, H1 and H3 to H7; `701069a` carries H2.
+The first is a single commit because the changes for different findings
+interleave inside the two storage files, and the intermediate states were
+never committed, so a per-finding split would have meant staging hunks by hand
+into commits nobody ever ran the tests against.
 
-166 tests pass; `dart analyze` reports two pre-existing deprecation notices
+182 tests pass; `dart analyze` reports two pre-existing deprecation notices
 outside generated code.
 
 New source files: `lib/src/errors.dart`,
@@ -69,7 +70,8 @@ New source files: `lib/src/errors.dart`,
 New test files: `serialization_test.dart` (C1, C2), `retry_backoff_test.dart`
 (C3, M4), `lease_reclaim_test.dart` (C4, H1), `candidate_scan_test.dart` (H4),
 `isar_semantics_test.dart` (C5, C6, H5), `contract_test.dart` (H6, H7, run
-against both backends), `contention_test.dart` (H3).
+against both backends), `contention_test.dart` (H3),
+`lease_ownership_test.dart` (H2, run against both backends).
 
 Modified: both storage backends and both lock managers, the storage interface,
 `queue.dart`, `duraq.dart`, the Isar models and their generated code,
