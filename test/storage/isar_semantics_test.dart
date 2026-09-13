@@ -5,6 +5,8 @@ import 'package:duraq/src/storage/isar_models.dart';
 import 'package:isar/isar.dart';
 import 'package:test/test.dart';
 
+import '../utils/isar_test_core.dart';
+
 /// Regression tests for C5, C6 and H5.
 ///
 /// The Isar backend used to add a row per store rather than per entry, treat
@@ -18,7 +20,7 @@ void main() {
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_isar_sem_').path;
-      await Isar.initializeIsarCore(download: true);
+      await ensureIsarCore();
       isar = await Isar.open(
         IsarStorage.requiredSchemas,
         directory: tempDir,

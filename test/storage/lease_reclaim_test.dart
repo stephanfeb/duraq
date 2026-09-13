@@ -5,6 +5,8 @@ import 'package:isar/isar.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import '../utils/isar_test_core.dart';
+
 /// Regression tests for C4, and for H1 which the reclaim depends on.
 ///
 /// A consumer that dies without acknowledging its entry used to strand it in
@@ -179,7 +181,7 @@ void main() {
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_lease_isar_').path;
-      await Isar.initializeIsarCore(download: true);
+      await ensureIsarCore();
       isar = await Isar.open(
         IsarStorage.requiredSchemas,
         directory: tempDir,

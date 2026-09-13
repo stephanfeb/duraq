@@ -5,6 +5,8 @@ import 'package:isar/isar.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import '../utils/isar_test_core.dart';
+
 /// Regression tests for H6 and H7.
 ///
 /// Both backends have to answer these the same way. They used to disagree
@@ -34,7 +36,7 @@ void main() {
 
   Future<StorageUnderTest> openIsar({Duration? leaseDuration}) async {
     final dir = Directory.systemTemp.createTempSync('duraq_contract_isar_');
-    await Isar.initializeIsarCore(download: true);
+    await ensureIsarCore();
     final isar = await Isar.open(
       IsarStorage.requiredSchemas,
       directory: dir.path,

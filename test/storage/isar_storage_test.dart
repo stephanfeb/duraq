@@ -4,6 +4,8 @@ import 'package:isar/isar.dart';
 import 'package:duraq/src/storage/isar_storage.dart';
 import 'package:duraq/src/queue_entry.dart';
 
+import '../utils/isar_test_core.dart';
+
 void main() {
   group('IsarStorage', () {
     late IsarStorage storage;
@@ -15,7 +17,7 @@ void main() {
       tempDir = Directory.systemTemp.createTempSync('isar_test_').path;
       
       // Initialize Isar core
-      await Isar.initializeIsarCore(download: true);
+      await ensureIsarCore();
       
       // Create Isar instance with required schemas
       isar = await Isar.open(

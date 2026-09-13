@@ -5,6 +5,8 @@ import 'package:isar/isar.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import '../utils/isar_test_core.dart';
+
 /// Regression tests for H2.
 ///
 /// Acquiring a claim generated a lock id, returned it, and then nobody kept it.
@@ -34,7 +36,7 @@ void main() {
 
   Future<StorageUnderTest> openIsar(Duration lease) async {
     final dir = Directory.systemTemp.createTempSync('duraq_lease_own_isar_');
-    await Isar.initializeIsarCore(download: true);
+    await ensureIsarCore();
     final isar = await Isar.open(
       IsarStorage.requiredSchemas,
       directory: dir.path,

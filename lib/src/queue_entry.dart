@@ -83,6 +83,28 @@ class QueueEntry<T> {
   }
 
   /// Creates a copy of this entry with updated fields
+  /// Returns a copy of this entry carrying [data] in place of its payload,
+  /// with a payload type that need not match this one's.
+  ///
+  /// [copyWith] cannot do this: it returns a `QueueEntry<T>`, and both encoding
+  /// a payload for storage and decoding one on the way out change the type.
+  /// Every other field is carried across unchanged, including [leaseId], so a
+  /// decoded entry can still be completed under the claim it was handed out on.
+  QueueEntry<R> withData<R>(R data) => QueueEntry<R>(
+        id: id,
+        data: data,
+        createdAt: createdAt,
+        lastUpdatedAt: lastUpdatedAt,
+        expiresAt: expiresAt,
+        scheduledFor: scheduledFor,
+        attempts: attempts,
+        priority: priority,
+        status: status,
+        errorMessage: errorMessage,
+        nextRetryAt: nextRetryAt,
+        leaseId: leaseId,
+      );
+
   QueueEntry<T> copyWith({
     String? id,
     T? data,

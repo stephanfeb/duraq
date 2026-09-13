@@ -5,6 +5,8 @@ import 'package:isar/isar.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import '../utils/isar_test_core.dart';
+
 /// Regression tests for C3, and for M4 which C3 depends on.
 ///
 /// A failed entry goes back to pending with a `nextRetryAt` computed from the
@@ -184,7 +186,7 @@ void main() {
 
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_backoff_isar_').path;
-      await Isar.initializeIsarCore(download: true);
+      await ensureIsarCore();
       isar = await Isar.open(
         IsarStorage.requiredSchemas,
         directory: tempDir,

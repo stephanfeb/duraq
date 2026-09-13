@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `dequeue()` now removes the entry it returns. It previously claimed the entry
+  and handed back the payload with no way to acknowledge it, leaving the row in
+  `processing`; once the lease expired the entry was handed out again, so every
+  dequeued item came back. The claim and the delete now happen in one
+  transaction. That makes `dequeue()` at-most-once: use `processNext()`, which
+  is unchanged, when an item must not be lost.
+- `QueueManager.queue<T>()` no longer throws a cast error when a queue is asked
+  for under a second element type. The cache was keyed by name alone, so the
+  first caller's type won for the life of the process and a queue first touched
+  untyped could never be fetched typed. Queues are now cached per name *and*
+  type, so a worker reading `Invoice` and an admin tool reading `dynamic` can
+  share one queue.
+- Removing an entry now releases its lock. A deleted id stayed marked as claimed
+  until its lease ran out, so the same id could not be enqueued and picked up
+  again in that window.
 - Concurrent calls to `SQLiteStorage.transaction()` no longer nest inside one
   another. Previously two overlapping transactions shared a single depth
   counter, so one caller's rollback discarded another caller's committed rows
@@ -137,6 +152,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by earlier versions. Those versions could store several rows for one
   entry; this collapses them, keeping the most recently updated row, and
   returns how many rows it removed. Run it once after upgrading.
+- `QueueCodec<T>` and a `codec` parameter on `Queue`, `DeadLetterQueue` and
+  `QueueManager.queue`. Payloads are stored as JSON, which limited a queue to
+  what `jsonEncode` accepts no matter what its type argument said. A codec makes
+  that boundary explicit and lifts it, so `Queue<Invoice>` can hold an `Invoice`.
+  `QueueCodec.from(encode:, decode:)` builds one from a pair of functions.
+- `PayloadCodecException`, raised when a payload cannot cross that boundary: an
+  unencodable payload with no codec, a codec that threw, or a queue read through
+  an element type its entries were not written with. Each replaces an error that
+  named only the failing conversion — `JsonUnsupportedObjectError`, or a bare
+  `TypeError` about two unrelated types — with one naming the queue, the type,
+  and the way out.
+- `QueueEntry.withData<R>()`, which copies an entry around a payload of a
+  different type. `copyWith` cannot change the payload type, and both encoding
+  and decoding do.
 - `tool/verify.sh`, the project's gate: `dart analyze --fatal-infos
   --fatal-warnings` followed by the test suite. `tool/verify.sh --flake N` runs
   the suite N times instead, to surface timing flakes. `tool/install-hooks.sh`

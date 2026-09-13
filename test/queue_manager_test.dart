@@ -67,5 +67,57 @@ void main() {
         completes,
       );
     });
+
+    // Regression tests for M2. The cache was keyed by name alone and the
+    // result cast to the caller's type, so the first caller's type won for the
+    // life of the process and every later caller got a _TypeError out of the
+    // cache.
+    group('typed views of one queue', () {
+      test('the same name can be read as two different types', () {
+        final asString = manager.queue<String>('mixed');
+        final asInt = manager.queue<int>('mixed');
+
+        expect(asString, isA<Queue<String>>());
+        expect(asInt, isA<Queue<int>>());
+      });
+
+      test('a queue first touched untyped can still be fetched typed', () {
+        manager.queue<dynamic>('logs');
+
+        expect(manager.queue<String>('logs'), isA<Queue<String>>());
+      });
+
+      test('each name and type pair gets one instance', () {
+        expect(
+          identical(manager.queue<String>('q'), manager.queue<String>('q')),
+          isTrue,
+        );
+        expect(
+          identical(manager.queue<String>('q'), manager.queue<int>('q')),
+          isFalse,
+          reason: 'different element types are different queue objects',
+        );
+      });
+
+      test('typed views read the same stored entries', () async {
+        await manager.queue<String>('shared').enqueue('written as a String');
+
+        // An admin tool reading `dynamic` sees what a worker wrote.
+        expect(
+          await manager.queue<dynamic>('shared').dequeue(),
+          equals('written as a String'),
+        );
+      });
+
+      test('removeQueue forgets every typed view of the name', () async {
+        final typed = manager.queue<String>('doomed');
+        final untyped = manager.queue<dynamic>('doomed');
+
+        await manager.removeQueue('doomed');
+
+        expect(identical(manager.queue<String>('doomed'), typed), isFalse);
+        expect(identical(manager.queue<dynamic>('doomed'), untyped), isFalse);
+      });
+    });
   });
 }

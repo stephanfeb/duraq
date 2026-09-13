@@ -69,3 +69,79 @@ class DuplicateEntryException extends DuraQException {
       'DuplicateEntryException: queue "$queueName" already holds an entry '
       'with id "$entryId"';
 }
+
+/// Thrown when a payload cannot cross the boundary between the type a queue
+/// declares and the JSON the storage holds.
+///
+/// Three things raise it: a payload that `jsonEncode` cannot represent and no
+/// codec to convert it, a codec that threw, and an entry whose stored payload
+/// is not the type the queue was asked for. Each replaces an error that named
+/// only the failing conversion — `JsonUnsupportedObjectError`, or a bare
+/// `TypeError` about `String` and `int` — with one that names the queue, the
+/// type involved, and what to do about it.
+class PayloadCodecException extends DuraQException {
+  /// The queue whose payload could not be converted.
+  final String queueName;
+
+  /// The element type the queue was declared with.
+  final Type payloadType;
+
+  PayloadCodecException._(
+    this.queueName,
+    this.payloadType,
+    String message, {
+    Object? cause,
+  }) : super(message, cause: cause);
+
+  /// A payload could not be written.
+  factory PayloadCodecException.encoding(
+    String queueName,
+    Type payloadType, {
+    required bool hasCodec,
+    Object? cause,
+  }) =>
+      PayloadCodecException._(
+        queueName,
+        payloadType,
+        hasCodec
+            ? 'The codec for queue "$queueName" returned something that '
+                'cannot be stored as JSON. Its encode must return numbers, '
+                'strings, booleans, null, or lists and maps of those.'
+            : 'Payloads of type $payloadType cannot be stored as JSON. Give '
+                'the queue a QueueCodec to convert them, or enqueue a type '
+                'jsonEncode accepts.',
+        cause: cause,
+      );
+
+  /// A codec threw while rebuilding a payload.
+  factory PayloadCodecException.decoding(
+    String queueName,
+    Type payloadType, {
+    Object? cause,
+  }) =>
+      PayloadCodecException._(
+        queueName,
+        payloadType,
+        'The codec for queue "$queueName" could not rebuild a payload of '
+        'type $payloadType from what was stored.',
+        cause: cause,
+      );
+
+  /// A stored payload is not the type the queue declares.
+  factory PayloadCodecException.mismatch(
+    String queueName,
+    Type payloadType,
+    Object? stored,
+  ) =>
+      PayloadCodecException._(
+        queueName,
+        payloadType,
+        'Queue "$queueName" holds a payload of type ${stored.runtimeType} '
+        'where $payloadType was expected. Either the queue was written through '
+        'a different element type, or it needs a QueueCodec to rebuild the '
+        'payload.',
+      );
+
+  @override
+  String toString() => 'PayloadCodecException: $message';
+}

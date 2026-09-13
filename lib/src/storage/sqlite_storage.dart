@@ -810,6 +810,9 @@ class SQLiteStorage implements StorageInterface {
       'DELETE FROM queue_entries WHERE queue_name = ? AND id = ?',
       [queueName, entryId],
     );
+    // A lock outlives the entry it guards otherwise, and keeps a dead id
+    // marked as claimed until its lease runs out.
+    await _lock.release(queueName, entryId);
   }
 
   /// Updates the status of a queue entry

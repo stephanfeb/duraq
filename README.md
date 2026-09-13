@@ -39,11 +39,9 @@ void main() async {
     // Enqueue items
     await emailQueue.enqueue('Welcome email to user@example.com');
 
-    // Process items
-    final email = await emailQueue.dequeue();
-    if (email != null) {
-      await processEmail(email);
-    }
+    // Process items. processNext keeps the entry until the work returns, so
+    // a crash mid-send redelivers it rather than losing it.
+    await emailQueue.processNext(processEmail);
 
     // Check queue status
     final remaining = await emailQueue.length;
@@ -241,14 +239,33 @@ final queue = manager.queue<String>('notifications');
 await queue.enqueue('Notification 1');
 await queue.enqueue('Notification 2');
 
-// dequeue() returns the raw data (T?), not a QueueEntry
+// dequeue() returns the raw data (T?), not a QueueEntry, and removes the entry
+// as it hands it over. If this loop dies partway, the item it was holding is
+// gone with it.
 while (true) {
   final item = await queue.dequeue();
   if (item == null) break;
 
   await processNotification(item);
 }
+
+// processNext() keeps the entry until the callback returns, retries it under
+// the queue's retry policy if the callback throws, and gives it to another
+// consumer if this one dies. Prefer it for work that must not be lost.
+while (await queue.processNext(processNotification)) {}
 ```
+
+### Delivery Guarantees
+
+| | `dequeue()` | `processNext()` |
+| --- | --- | --- |
+| Delivery | At most once | At least once |
+| Entry is removed | As it is handed to you | After the callback returns |
+| Callback throws | Not applicable | Retried, then dead-lettered |
+| Consumer dies mid-work | Item is lost | Entry is reclaimed and redelivered |
+
+Pick `dequeue()` when losing an item is cheaper than doing it twice, and
+`processNext()` when it is not.
 
 ### Multiple Queue Types
 ```dart
@@ -260,6 +277,53 @@ await emailQueue.enqueue(EmailMessage(...));
 final jobQueue = manager.queue<BackgroundJob>('jobs');
 await jobQueue.enqueue(BackgroundJob(...));
 ```
+
+The same queue can be read through more than one element type. A worker reads
+its own payload type while an admin tool reads `dynamic` over the same entries:
+
+```dart
+final typed = manager.queue<EmailMessage>('emails');
+final raw = manager.queue<dynamic>('emails');   // same entries, no type argument
+```
+
+### Payload Types and Codecs
+
+Payloads are stored as JSON. Without a codec a queue can hold only what
+`jsonEncode` accepts — numbers, strings, booleans, null, and lists and maps of
+those — regardless of what its type argument says. A domain object that does not
+define `toJson()` throws `PayloadCodecException` at enqueue, naming the type and
+what to do about it.
+
+Give the queue a codec and the restriction lifts:
+
+```dart
+final invoices = Queue<Invoice>(
+  'invoices',
+  storage,
+  codec: QueueCodec.from(
+    encode: (invoice) => invoice.toJson(),
+    decode: (stored) => Invoice.fromJson(stored! as Map<String, dynamic>),
+  ),
+);
+
+await invoices.enqueue(Invoice(customer: 'acme', cents: 1999));
+final invoice = await invoices.dequeue();   // an Invoice, not a Map
+```
+
+`decode` receives exactly what `jsonDecode` produced, so maps arrive as
+`Map<String, dynamic>` and every number as `int` or `double` whatever went in.
+Both directions must be pure: an entry can be decoded in a later run of the
+program, long after it was written.
+
+Pass the same codec to a `DeadLetterQueue` reading the same entries:
+
+```dart
+final dead = DeadLetterQueue<Invoice>('invoices', storage, codec: invoiceCodec);
+```
+
+A queue read through the wrong element type also reports
+`PayloadCodecException`, naming the queue and both types, rather than failing as
+a cast error deep in the storage.
 
 ### Transaction Support
 
@@ -735,9 +799,9 @@ DuraQ provides built-in support for concurrent processing with entry-level locki
 final consumer1 = QueueManager(storage);
 final consumer2 = QueueManager(storage);
 
-// Each consumer gets a different entry - entries are locked while processing
-final item1 = await consumer1.queue<String>('jobs').dequeue();
-final item2 = await consumer2.queue<String>('jobs').dequeue();
+// Each consumer gets a different entry - entries are locked while claimed
+await consumer1.queue<String>('jobs').processNext(handleJob);
+await consumer2.queue<String>('jobs').processNext(handleJob);
 ```
 
 #### Features

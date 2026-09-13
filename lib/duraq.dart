@@ -1,6 +1,7 @@
 /// A durable queuing system implemented in Dart.
 library duraq;
 
+export 'src/codec.dart';
 export 'src/errors.dart';
 export 'src/queue.dart';
 export 'src/queue_entry.dart';

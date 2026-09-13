@@ -539,6 +539,9 @@ class IsarStorage implements StorageInterface {
           .where()
           .entryKeyEqualTo(entryKeyFor(queueName, entryId))
           .deleteAll();
+      // A lock outlives the entry it guards otherwise, and keeps a dead id
+      // marked as claimed until its lease runs out.
+      await _lock.release(queueName, entryId);
     });
   }
 

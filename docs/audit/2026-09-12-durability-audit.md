@@ -43,13 +43,16 @@ landed; this table is the index.
 | H6 | Finished work never removed | Fixed (caller must schedule it) |
 | H7 | Backends disagree on a duplicate id | Fixed (residual: ids global, not per queue) |
 | M4 | Store drops the retry time | Fixed with C3 |
-| M1–M3, M5–M14 | Contract, clarity and dead weight | **Open** |
+| M1 | `dequeue` does not remove anything | Fixed (now at-most-once by contract) |
+| M2 | Queue manager caches by name and casts | Fixed |
+| M3 | Type safety is nominal | Fixed (`QueueCodec`; JSON is still the storage form) |
+| M5–M14 | Contract, clarity and dead weight | **Open** |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
 | Q4 | No CI, no lint configuration | Fixed |
 | Q5 | Untested behaviours are the ones that fail | Mostly closed; TTL of an in-flight entry and dead-letter lock release are still untested |
-| Q6 | Tests lean on real databases and wall-clock waits | Partly: two flaky assertions found and fixed, and `tool/verify.sh --flake` now hunts for more. The suite still uses real databases and real elapsed time |
+| Q6 | Tests lean on real databases and wall-clock waits | Partly: three flakes found and fixed (two timing assertions, one Isar download race), and `tool/verify.sh --flake` now hunts for more. The suite still uses real databases and real elapsed time |
 
 ### Where the work lives
 
@@ -642,6 +645,53 @@ Two further measurements worth acting on:
 
 ---
 
+### Status: M1, M2 and M3 fixed
+
+**M1.** Reproduced first: two items enqueued, one dequeued, and 300 ms later
+`dequeue` returned the *same* payload again. With C4's reclaim in place the old
+behaviour was worse than a leaked row — every dequeued item came back until
+`maxDeliveryAttempts` sent it to the dead letter queue.
+
+`dequeue` now claims and deletes in one transaction, which is what its
+documentation always said it did. That fixes the redelivery and settles the
+contract: `dequeue` is at most once, `processNext` is at least once, and the
+README now carries a table saying so rather than leaving a reader to infer it.
+Deleting an entry also releases its lock, which it did not before — a deleted id
+stayed claimed until its lease ran out, so the id could not be re-enqueued and
+picked up in that window.
+
+Eight of the twelve new tests in `queue_dequeue_test.dart` fail against the old
+`dequeue`, and the lock test fails on both backends when only the lock release
+is reverted.
+
+**M2.** The cache was keyed by name and the result cast to the caller's type, so
+`queue<int>('x')` after `queue<String>('x')` threw
+`type 'Queue<String>' is not a subtype of type 'Queue<int>'` out of the cache,
+and a queue first touched untyped could never be fetched typed. The key is now
+the name *and* the element type. Two typed views of one queue are legitimate —
+a worker reading `Invoice` while an admin tool reads `dynamic` — and both now
+work over the same entries. `removeQueue` clears every view of the name.
+
+**M3.** `Queue<T>` promised "any data type" and delivered whatever `jsonEncode`
+accepts. `QueueCodec<T>` makes that boundary explicit and lifts it; JSON is
+still the storage form, which keeps existing databases readable. The codec
+reaches `DeadLetterQueue` too, because those are the same entries moved aside,
+and a codec that only worked on the happy path would not be a fix.
+
+Three failures now report `PayloadCodecException` naming the queue, the type and
+the way out, in place of a `JsonUnsupportedObjectError` or a bare `TypeError`
+about two unrelated types: an unencodable payload with no codec, a codec that
+threw, and a queue read through the wrong element type.
+
+One thing the reproduction changed: `dequeue` decodes *inside* the transaction,
+before the delete. A codec that throws would otherwise destroy the payload on
+its way past. Verified on both backends — the entry stays pending and the
+retry after the codec recovers returns it.
+
+Not addressed, and not claimed: a payload still round-trips through JSON, so
+`Queue<double>` reading an entry stored as `1` still meets an `int`. The codec
+is the supported way to control that.
+
 ## Test suite and process (Q1–Q6)
 
 | ID | Severity | Finding |
@@ -695,9 +745,20 @@ wait, and a blocking implementation scores exactly zero on that regardless of
 load, so the bar is now two. Three consecutive runs pass, including three with
 six cores deliberately saturated.
 
-That is two timing assertions found and fixed this way. The underlying finding
-stands: the suite still drives real databases and real elapsed time, and
-`test/utils/mock_storage.dart` is still barely used.
+A third flake, found the same way while the M1 to M3 work was in flight, was not
+a timing assertion at all. Every Isar suite called
+`Isar.initializeIsarCore(download: true)`, which downloads the native library
+next to the running script — under `dart test` that is one temporary directory
+shared by the whole run. Seven suites now use Isar, they start together, and a
+suite reading the file mid-download failed with "fat file, but missing
+compatible architecture", which reads like a platform mismatch and is really a
+race. `test/utils/isar_test_core.dart` retries until the download settles and
+memoises the result per process. It failed about one run in five before; 14
+consecutive runs pass after, six of them with six cores saturated.
+
+That is two timing assertions and one download race found this way. The
+underlying finding stands: the suite still drives real databases and real
+elapsed time, and `test/utils/mock_storage.dart` is still barely used.
 
 The format check is deliberately **not** in the gate. Dart 3.11 formats in the
 tall style, which rewrites 35 of the 46 source files, and restyling a published

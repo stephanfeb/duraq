@@ -1,5 +1,9 @@
 import 'dart:async';
+
 import 'package:uuid/uuid.dart';
+
+import 'codec.dart';
+import 'payload_translator.dart';
 import 'queue_entry.dart';
 import 'retry/retry_policy.dart';
 import 'storage/storage_interface.dart';
@@ -17,9 +21,22 @@ class Queue<T> {
   /// The retry policy for failed entries
   final RetryPolicy? _retryPolicy;
 
-  /// Creates a new queue
-  Queue(this.name, this._storage, {RetryPolicy? retryPolicy})
-      : _retryPolicy = retryPolicy;
+  /// Converts payloads to and from what the storage can hold.
+  ///
+  /// Null means the payload is stored as JSON directly, which restricts this
+  /// queue to types `jsonEncode` accepts.
+  final QueueCodec<T>? codec;
+
+  /// Creates a new queue.
+  ///
+  /// Payloads are stored as JSON. Pass a [codec] for a payload type
+  /// `jsonEncode` cannot represent on its own; without one, enqueueing such a
+  /// type throws [PayloadCodecException].
+  Queue(this.name, this._storage, {RetryPolicy? retryPolicy, this.codec})
+      : _retryPolicy = retryPolicy,
+        _payload = PayloadTranslator<T>(name, codec);
+
+  final PayloadTranslator<T> _payload;
 
   /// Adds an item to the queue
   Future<void> enqueue(
@@ -27,15 +44,15 @@ class Queue<T> {
     int priority = 0,
     Duration? ttl,
   }) async {
-    final entry = QueueEntry<T>(
+    final entry = QueueEntry<Object?>(
       id: _generateId(),
-      data: data,
+      data: _encode(data),
       createdAt: DateTime.now(),
       priority: priority,
       expiresAt: ttl != null ? DateTime.now().add(ttl) : null,
     );
 
-    await _storage.store(name, entry);
+    await _store(entry);
   }
 
   /// Adds a pre-built QueueEntry to the queue.
@@ -49,13 +66,33 @@ class Queue<T> {
     QueueEntry<T> entry, {
     StoreConflict onConflict = StoreConflict.fail,
   }) async {
-    await _storage.store(name, entry, onConflict: onConflict);
+    await _store(entry.withData(_encode(entry.data)), onConflict: onConflict);
   }
 
-  /// Retrieves and removes the next item from the queue
-  Future<T?> dequeue() async {
-    final entry = await _storage.retrieve(name);
-    return entry?.data as T?;
+  /// Takes the next item off the queue and returns its payload.
+  ///
+  /// The entry is claimed and deleted in one transaction, so it is gone by the
+  /// time you hold the payload. That makes delivery **at most once**: if the
+  /// process dies between this call returning and the work being done, the
+  /// item is lost, because nothing remains to redeliver.
+  ///
+  /// Use [processNext] for at-least-once delivery. There the entry survives
+  /// until the processor returns, a failure is retried according to the retry
+  /// policy, and a consumer that dies mid-flight has its entry reclaimed.
+  ///
+  /// Returns null when the queue has nothing ready.
+  Future<T?> dequeue() {
+    return _storage.transaction<T?>(() async {
+      final claimed = await _storage.retrieve(name);
+      if (claimed == null) return null;
+
+      // Decode before the delete, inside the transaction. A codec that throws
+      // then rolls the claim back and leaves the entry in the queue, instead
+      // of destroying a payload nobody could read.
+      final data = _decode(claimed.data);
+      await _storage.removeEntry(name, claimed.id);
+      return data;
+    });
   }
 
   /// Processes the next item in the queue with the given callback
@@ -66,7 +103,7 @@ class Queue<T> {
     if (entry == null) return false;
 
     try {
-      await processor(entry.data as T);
+      await processor(_decode(entry.data));
       await _markCompleted(entry.id, entry.leaseId);
       return true;
     } catch (e) {
@@ -127,6 +164,18 @@ class Queue<T> {
 
   /// Returns the number of entries in the queue
   Future<int> get length => _storage.count(name);
+
+  Future<void> _store(
+    QueueEntry<Object?> entry, {
+    StoreConflict onConflict = StoreConflict.fail,
+  }) =>
+      _payload.guardWrite(
+        () => _storage.store(name, entry, onConflict: onConflict),
+      );
+
+  Object? _encode(T data) => _payload.encode(data);
+
+  T _decode(Object? stored) => _payload.decode(stored);
 
   /// Generates a unique ID for a queue entry
   String _generateId() {

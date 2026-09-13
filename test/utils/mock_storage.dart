@@ -171,10 +171,14 @@ class MockStorage implements StorageInterface {
 
     final start = offset ?? 0;
     final end = (limit != null) ? start + limit : entries.length;
+    // Rebuild the entry around its payload rather than casting the entry
+    // itself. The real backends reconstruct entries out of JSON, so a
+    // QueueEntry<Object?> holding a String satisfies a caller asking for
+    // QueueEntry<String>; casting the whole entry does not.
     return entries
         .skip(start)
         .take(end - start)
-        .map((e) => e as QueueEntry<T>)
+        .map((e) => e.withData(e.data as T))
         .toList();
   }
 
