@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+#
+# Runs the gate before anything leaves the machine. The suite takes about four
+# seconds, which is cheaper than finding out from a consumer of the package.
+#
+# Install with tool/install-hooks.sh. Skip a single push with --no-verify.
+
+exec "$(git rev-parse --show-toplevel)/tool/verify.sh"

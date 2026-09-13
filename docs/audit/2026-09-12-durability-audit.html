@@ -1,0 +1,882 @@
+<title>DuraQ Durability Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+  :root {
+    --ground: #EAEDEF;
+    --surface: #FFFFFF;
+    --surface-sunk: #F3F5F6;
+    --ink: #12191F;
+    --ink-2: #46535D;
+    --ink-3: #78858E;
+    --rule: #D4DADE;
+    --rule-strong: #B6C0C6;
+    --accent: #12719B;
+    --crit: #8E1F16;
+    --high: #A85A1D;
+    --med: #4F6875;
+    --good: #2C6A50;
+    --series-a: #12719B;
+    --series-b: #C06A14;
+    --chart-grid: #E1E6E9;
+    --shadow: 0 1px 2px rgba(18, 25, 31, .06), 0 8px 24px -16px rgba(18, 25, 31, .3);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10161A;
+      --surface: #171D21;
+      --surface-sunk: #1C2429;
+      --ink: #E7ECEE;
+      --ink-2: #A9B6BD;
+      --ink-3: #7C8B93;
+      --rule: #2A343A;
+      --rule-strong: #3B4850;
+      --accent: #55A9CD;
+      --crit: #E08A7F;
+      --high: #DCA067;
+      --med: #94AEBC;
+      --good: #7FBFA0;
+      --series-a: #3D9AC6;
+      --series-b: #C47C20;
+      --chart-grid: #242E34;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10161A;
+    --surface: #171D21;
+    --surface-sunk: #1C2429;
+    --ink: #E7ECEE;
+    --ink-2: #A9B6BD;
+    --ink-3: #7C8B93;
+    --rule: #2A343A;
+    --rule-strong: #3B4850;
+    --accent: #55A9CD;
+    --crit: #E08A7F;
+    --high: #DCA067;
+    --med: #94AEBC;
+    --good: #7FBFA0;
+    --series-a: #3D9AC6;
+    --series-b: #C47C20;
+    --chart-grid: #242E34;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.62;
+    margin: 0;
+    padding-inline: 20px;
+    padding-block: 0 72px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .shell { max-width: 960px; margin: 0 auto; }
+
+  h1, h2, h3, .label, th, .tag, .fid {
+    font-family: Archivo, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  code, .mono, .num { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; }
+  code {
+    font-size: .86em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .06em .34em;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---------- masthead ---------- */
+  header.masthead {
+    border-bottom: 3px solid var(--ink);
+    padding-block: 56px 20px;
+    margin-bottom: 34px;
+  }
+  header.masthead h1 {
+    font-size: clamp(38px, 6.4vw, 62px);
+    font-weight: 700;
+    letter-spacing: -.022em;
+    line-height: 1.02;
+    margin: 14px 0 18px;
+    text-wrap: balance;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 28px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+  .meta-row b { color: var(--ink); font-weight: 500; }
+
+  .verdict {
+    font-size: clamp(19px, 2.3vw, 23px);
+    line-height: 1.5;
+    max-width: 34em;
+    margin: 26px 0 0;
+    text-wrap: pretty;
+  }
+  .verdict strong { font-weight: 600; }
+
+  /* ---------- signals ---------- */
+  .signals {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--rule-strong);
+    border-bottom: 1px solid var(--rule-strong);
+    margin: 40px 0 8px;
+  }
+  .signal { padding: 18px 22px 18px 0; border-left: 1px solid var(--rule); padding-left: 22px; }
+  .signal:first-child { border-left: 0; padding-left: 0; }
+  .signal .figure {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 30px;
+    font-weight: 500;
+    letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums;
+    display: block;
+    line-height: 1.1;
+  }
+  .signal .figure.alarm { color: var(--crit); }
+  .signal p { margin: 6px 0 0; font-size: 14px; line-height: 1.4; color: var(--ink-2); }
+
+  /* ---------- sections ---------- */
+  section { margin-top: 56px; }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid var(--rule-strong);
+    padding-bottom: 10px;
+    margin-bottom: 8px;
+  }
+  .section-head h2 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -.012em;
+    margin: 0;
+  }
+  .section-head .count {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13px;
+    color: var(--ink-3);
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .lede { max-width: 66ch; color: var(--ink-2); margin: 14px 0 0; }
+  p { text-wrap: pretty; }
+
+  /* ---------- findings ---------- */
+  .finding {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 0 26px;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .finding:last-child { border-bottom: 0; }
+  .fmark { padding-top: 3px; }
+  .fid {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    display: block;
+  }
+  .tag {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    display: inline-block;
+    margin-top: 6px;
+    padding: 2px 7px;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+  }
+  .crit  { color: var(--crit); }
+  .high  { color: var(--high); }
+  .med   { color: var(--med); }
+  .good  { color: var(--good); }
+  .fid.crit, .fid.high, .fid.med { color: inherit; }
+
+  .fbody h3 {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -.008em;
+    margin: 0 0 8px;
+    line-height: 1.3;
+    text-wrap: balance;
+  }
+  .fbody p { margin: 0 0 10px; max-width: 74ch; }
+  .fbody p:last-child { margin-bottom: 0; }
+  .fbody .k {
+    font-family: Archivo, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-right: 8px;
+  }
+  .evidence {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 2px solid var(--rule-strong);
+    padding: 12px 16px;
+    margin: 0 0 10px;
+    font-size: 15px;
+    max-width: 74ch;
+  }
+  .evidence .out {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    color: var(--ink-2);
+    margin: 6px 0 0;
+  }
+
+  /* ---------- compact finding list ---------- */
+  .compact { border-top: 1px solid var(--rule-strong); margin-top: 22px; }
+  .crow {
+    display: grid;
+    grid-template-columns: 108px minmax(0, 1fr);
+    gap: 0 26px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+  .crow .fid { font-size: 14px; }
+  .crow h3 { font-size: 16.5px; font-weight: 600; margin: 0 0 4px; font-family: Archivo, sans-serif; }
+  .crow p { margin: 0; font-size: 15.5px; max-width: 72ch; color: var(--ink-2); }
+  .crow p b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- tables ---------- */
+  .tablewrap { overflow-x: auto; margin-top: 22px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 460px; }
+  caption {
+    text-align: left;
+    font-family: Archivo, sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    padding-bottom: 10px;
+  }
+  th {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    text-align: right;
+    padding: 0 0 8px 18px;
+    border-bottom: 1px solid var(--rule-strong);
+    white-space: nowrap;
+  }
+  th:first-child, td:first-child { text-align: left; padding-left: 0; }
+  td {
+    padding: 9px 0 9px 18px;
+    border-bottom: 1px solid var(--rule);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 13.5px;
+    white-space: nowrap;
+  }
+  td:first-child { font-family: "Source Serif 4", serif; font-size: 15.5px; white-space: normal; }
+  tbody tr:last-child td { border-bottom: 1px solid var(--rule-strong); }
+  .barcell { position: relative; }
+  .bar {
+    display: block;
+    height: 7px;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
+    opacity: .85;
+  }
+
+  /* ---------- chart ---------- */
+  figure.chart {
+    margin: 26px 0 0;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 20px 20px 14px;
+    box-shadow: var(--shadow);
+  }
+  figure.chart figcaption {
+    font-family: Archivo, sans-serif;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .subcap { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; max-width: 62ch; }
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; margin: 12px 0 0; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; color: var(--ink-2); }
+  .swatch { width: 13px; height: 13px; border-radius: 2px; display: inline-block; }
+  .chart-scroll { overflow-x: auto; }
+  svg { display: block; max-width: 100%; height: auto; }
+  .tip {
+    position: fixed;
+    pointer-events: none;
+    background: var(--ink);
+    color: var(--ground);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    padding: 7px 10px;
+    border-radius: 3px;
+    opacity: 0;
+    transition: opacity .12s;
+    z-index: 10;
+    white-space: pre;
+  }
+  .tip.on { opacity: 1; }
+
+  /* ---------- sequence ---------- */
+  ol.sequence { counter-reset: step; list-style: none; padding: 0; margin: 24px 0 0; }
+  ol.sequence li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 0 22px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  ol.sequence li::before {
+    content: counter(step);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--ink-3);
+    line-height: 1.3;
+  }
+  ol.sequence h3 { font-family: Archivo, sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+  ol.sequence p { margin: 0; font-size: 15.5px; color: var(--ink-2); max-width: 70ch; }
+  ol.sequence .refs { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-3); }
+
+  .holds { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; margin-top: 20px; }
+  .holds div { padding: 14px 0; border-bottom: 1px solid var(--rule); }
+  .holds h3 { font-family: Archivo, sans-serif; font-size: 16px; font-weight: 600; margin: 0 0 4px; color: var(--good); }
+  .holds p { margin: 0; font-size: 15.5px; color: var(--ink-2); }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule-strong);
+    font-size: 14px;
+    color: var(--ink-3);
+    max-width: 70ch;
+  }
+  footer p { margin: 0 0 8px; }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  @media (max-width: 720px) {
+    body { font-size: 16px; }
+    .signals { grid-template-columns: repeat(2, 1fr); }
+    .signal { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); }
+    .signal:nth-child(-n+2) { border-top: 0; }
+    .finding, .crow, ol.sequence li { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .fmark { display: flex; align-items: center; gap: 10px; padding-top: 0; }
+    .tag { margin-top: 0; }
+    ol.sequence li::before { font-size: 15px; }
+    .holds { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <span class="label">Quality assessment &amp; engineering report</span>
+    <h1>DuraQ Durability Audit</h1>
+    <div class="meta-row">
+      <span>package <b>duraq 1.0.1</b></span>
+      <span>commit <b>5315698</b></span>
+      <span>Dart <b>3.11.5</b> · macOS arm64</span>
+      <span>reviewed <b>12 Sep 2026</b></span>
+    </div>
+    <p class="verdict">The structure is sound and the SQLite schema is well chosen, but <strong>DuraQ does not currently hold the guarantees its README advertises</strong>. Six defects can lose or duplicate a job, and one of them is already failing in the repository's own test suite.</p>
+  </header>
+
+  <div class="signals">
+    <div class="signal">
+      <span class="figure alarm">1</span>
+      <p>test failing on a clean checkout of the published version</p>
+    </div>
+    <div class="signal">
+      <span class="figure alarm">6</span>
+      <p>defects that lose, duplicate, or silently discard work</p>
+    </div>
+    <div class="signal">
+      <span class="figure">48.7<span style="font-size:19px">%</span></span>
+      <p>line coverage of <code>lib</code>, excluding generated code</p>
+    </div>
+    <div class="signal">
+      <span class="figure">4.8×</span>
+      <p>dequeue slowdown as the backlog grows from 1k to 20k</p>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>Critical defects</h2>
+      <span class="count">C1–C6 · job loss or duplication</span>
+    </div>
+    <p class="lede">Each of these was reproduced against this commit. Every claim below comes from a run, not a reading.</p>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C1</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>Overlapping transactions roll back each other's committed work</h3>
+        <p>Transaction nesting is tracked by a single integer on the storage object, while the transaction method itself is asynchronous. Two callers that overlap therefore nest inside one another by accident: the second caller's savepoint is taken after the first has already started writing, so the second caller's rollback discards the first caller's rows. The first caller still returns normally.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>Two concurrent transactions, one storing a row and one throwing.
+          <p class="out">txn B failed as expected: Bad state: this transaction fails
+txn A reported success
+rows persisted: []</p>
+        </div>
+        <p><span class="k">Fix</span>Serialize storage operations through a single-slot lock, and recognise a nested transaction only when it comes from the same logical caller, for example by issuing a token from begin rather than counting depth globally.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C2</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>Parallel consumers are told the queue is empty while jobs wait in it</h3>
+        <p>The same interleaving corrupts retrieval. Ten parallel retrieve calls against five pending entries hand out three, return null seven times, and leave two entries pending. A worker pool reads those nulls as an idle queue and backs off while work sits there.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>Deterministic across runs, and already failing in the repository.
+          <p class="out">test/storage/concurrent_processing_test.dart
+"should handle multiple concurrent queue operations"
+  Expected: &lt;5&gt;   Actual: &lt;3&gt;
+
+handed to workers: [e0, e2, e4]
+  e1: pending    e3: pending   (never offered)</p>
+        </div>
+        <p><span class="k">Fix</span>Make a claim atomic: one statement that selects and marks in a single step, or a serialized critical section around the claim. This is the same root cause as C1 and both close together.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C3</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>Retry backoff is calculated, stored, and then ignored</h3>
+        <p>On failure the queue computes a delay and writes it to the entry, but neither backend's retrieval predicate reads that column. The candidate query filters on scheduled time and expiry only. A failed job returns to pending and is immediately eligible again, so a permanently failing job spins at full speed through its whole attempt budget instead of backing off. Exponential backoff is a headline feature and it has no effect on either backend.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>Ten-minute base delay, SQLite and Isar alike.
+          <p class="out">after failure: status=pending attempts=1
+             nextRetryAt=2026-09-12 11:00:53
+immediate retrieve returns the same entry</p>
+        </div>
+        <p><span class="k">Fix</span>Add the retry gate to the candidate query on both backends and index it. The SQLite index for it already exists and is unused. Note that the insert statement also omits the retry column entirely, so a pre-built entry loses the value before it is ever read.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C4</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>Nothing ever recovers an entry left in processing</h3>
+        <p>Retrieval marks an entry as processing and takes a five minute lock. If the worker crashes, the process is killed, or the caller used dequeue, that row stays processing forever. The lock expires; the status does not. No query looks at processing rows again, so the job is unreachable, and the queue reports its length as zero. For a library whose purpose is surviving restarts, this is the most consequential gap in the design.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>Retrieve an entry, then simulate the worker dying.
+          <p class="out">next retrieve: null ; queue length = 0
+row status now: processing   (no reaper exists)</p>
+        </div>
+        <p><span class="k">Fix</span>Introduce a visibility timeout. Persist the lease expiry on the entry itself and let retrieval reclaim processing rows whose lease has passed, bounded by the attempt count so a poisonous job still reaches the dead letter queue. Expose an explicit reclaim call for startup.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C5</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>Isar stores one job many times and delivers it many times</h3>
+        <p>The entry identifier carries a non-unique index and the collection uses an auto-incrementing primary key, so storing the same entry twice creates two independent rows. Counting sees both. Status updates find only the first. The processor runs on the payload once per row, which turns a retried enqueue or a replayed request into duplicate side effects.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>One entry stored twice, then drained through the queue.
+          <p class="out">payload delivered to the processor 2 time(s) for one logical job
+rows: same-id completed · same-id processing (stranded)</p>
+        </div>
+        <p><span class="k">Fix</span>Put a unique composite index on queue name and entry id, and write through it. Then settle the contract that SQLite and Isar currently disagree about, described in H7.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid crit">C6</span><span class="tag crit">Critical</span></div>
+      <div class="fbody">
+        <h3>The Isar transaction API provides no atomicity at all</h3>
+        <p>Begin, commit and rollback only move a counter, and rollback does nothing else. Each individual write has already committed in its own write transaction, so a multi-step operation that throws halfway leaves the earlier steps in place. Callers get the same method signature as the SQLite backend and a different guarantee. The README carries a note about this, but the interface still promises atomicity and rollback still returns success.</p>
+        <div class="evidence">
+          <span class="k">Reproduced</span>A transaction that stores a row, then throws.
+          <p class="out">transaction threw: Bad state: rollback please
+rows after rolled-back transaction: [a]</p>
+        </div>
+        <p><span class="k">Fix</span>Run the body inside one Isar write transaction and have the storage methods join the ambient transaction instead of opening their own. Until that lands, make rollback throw rather than pretend.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>High severity</h2>
+      <span class="count">H1–H7 · correctness under load and across processes</span>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H1</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>Disposing one storage instance releases every lock in the database</h3>
+        <p>The release-all path is an unfiltered delete over the lock table, and disposal calls it. Any process, isolate, or component shutting down therefore drops the locks held by every other consumer of the same file, across every queue in it. The next retrieval can hand out an entry that is still in flight elsewhere.</p>
+        <p><span class="k">Fix</span>Track the lock identifiers this instance owns and delete only those, or leave the lock table alone on disposal and let leases expire.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H2</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>Locks have an owner identifier that is never checked</h3>
+        <p>Acquiring a lock generates and stores an identifier and returns it, but nothing keeps it and release deletes by queue and entry alone. A worker whose lease has already expired will happily release its successor's lock when it finishes, and any caller can release any lock through a status update. The identifier gives the appearance of ownership without enforcing it.</p>
+        <p><span class="k">Fix</span>Carry the lock identifier with the claimed entry and make release conditional on it.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H3</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>Multi-process use is not configured for, and fails loudly</h3>
+        <p>Write-ahead logging is enabled, which invites multi-process use, but the busy timeout is left at zero. A second process writing the same file gets an immediate locked error rather than waiting. Disposal can fail the same way and throw out of a shutdown path.</p>
+        <div class="evidence">
+          <span class="k">Measured</span>Two processes, 300 enqueues each, same database file.
+          <p class="out">B: committed=253 failed=47
+   SqliteException(5): database is locked
+(a second run crashed the losing process inside dispose)</p>
+        </div>
+        <p><span class="k">Fix</span>Set a busy timeout, retry on contention, and state the supported concurrency model in the README. Several projects sharing one queue file is exactly the situation this package invites.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H4</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>Every dequeue rescans the entire backlog before it looks for work</h3>
+        <p>Retrieval runs an expiry sweep across all pending rows of the queue on each call, even though the candidate query that follows already excludes expired rows. The sweep cannot use the partial expiry index and falls back to the retrieval index, so its cost is proportional to the backlog. At twenty thousand pending entries it is almost the entire cost of a dequeue.</p>
+        <div class="evidence">
+          <span class="k">Measured</span>Backlog of 20,000, no row carrying an expiry at all.
+          <p class="out">expiry sweep     1086 us per dequeue
+candidate select   52 us
+lock cleanup        5 us</p>
+        </div>
+        <p><span class="k">Fix</span>Take the sweep out of the hot path and run it in periodic maintenance. The candidate query already handles expiry lazily. While there, replace the offset-walking loop that searches for an unlocked candidate, which rescans from the start on each attempt.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H5</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>The Isar backend declares ten indexes and uses none of them</h3>
+        <p>All twenty-one queries in the Isar backend go through the unindexed filter path, which walks the whole collection and sorts the matches in memory; not one uses an indexed lookup. The model meanwhile declares ten indexes, including a composite retrieval key no query mentions. They cost write time on every store and return nothing on read. Isar enqueues at roughly a sixth of SQLite's rate.</p>
+        <p><span class="k">Fix</span>Query through the composite index that already exists and delete the ones nothing reads.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H6</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>Finished work is never removed</h3>
+        <p>Nothing deletes completed, failed, or dead-lettered rows. The one cleanup routine covers expired entries only, exists on the concrete classes rather than the storage interface, and is never called by the library or reachable through it generically. A queue that runs for months keeps every job it has ever processed.</p>
+        <p><span class="k">Fix</span>Put a retention policy and a maintenance entry point on the interface, and document who is expected to run it and how often.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="fmark"><span class="fid high">H7</span><span class="tag high">High</span></div>
+      <div class="fbody">
+        <h3>The two backends disagree about storing a duplicate identifier</h3>
+        <p>SQLite throws a raw driver exception with the failing statement and parameters attached; Isar silently creates a second row. A caller writing against the interface cannot handle both, and the payload appears in the SQLite error text, which is a logging concern of its own.</p>
+        <p><span class="k">Fix</span>Decide whether store is an upsert or an error, implement it identically on both backends, translate driver exceptions into a package-level error type, and test the contract against every backend.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Medium severity</h2>
+      <span class="count">M1–M14 · contract, clarity, and dead weight</span>
+    </div>
+
+    <div class="compact">
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M1</span><span class="tag med">Medium</span></div>
+        <div><h3>dequeue does not remove anything</h3><p>Documented as retrieving and removing, it marks the entry as processing and returns the payload with no way to acknowledge it. <b>Every call leaks a row</b> by the mechanism in C4. Either implement it as claim-and-delete or retire it in favour of the processing callback.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M2</span><span class="tag med">Medium</span></div>
+        <div><h3>Queue manager caches by name and casts</h3><p>Asking for the same queue with a different element type throws a type error, and the first caller's type wins for the lifetime of the process. A queue first touched without a type argument can never be fetched with one.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M3</span><span class="tag med">Medium</span></div>
+        <div><h3>Type safety is nominal</h3><p>Payloads round-trip through JSON, so a plain Dart object throws at enqueue and a mismatched type surfaces as a cast error at dequeue. The feature list promises generic support for any data type. A codec parameter on the queue would make the constraint explicit and lift it.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M4</span><span class="tag med">Medium</span></div>
+        <div><h3>Storing an entry drops its retry time</h3><p>The insert statement omits the retry column, so a pre-built entry carrying one loses it silently. Confirmed by round-tripping an entry through store and read-back.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M5</span><span class="tag med">Medium</span></div>
+        <div><h3>Backoff arithmetic overflows into a negative delay</h3><p>The delay is a power of two with no bound on the exponent. At 60 attempts it returns a <b>negative duration</b>, which schedules the retry in the past, and beyond about a thousand it returns zero. The maximum delay is bypassed in both cases because the clamp compares against the overflowed value.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M6</span><span class="tag med">Medium</span></div>
+        <div><h3>Status updates clear fields nobody asked them to clear</h3><p>Each update overwrites the error message and retry time with null unless both are supplied, and no update checks that a row matched, so a wrong identifier is a silent success.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M7</span><span class="tag med">Medium</span></div>
+        <div><h3>Queue length counts jobs that cannot be dequeued</h3><p>Entries scheduled for the future and entries waiting on a retry are both counted as pending. A queue reporting a length of one can return nothing on the next call, which makes the figure unsafe for health checks or scaling decisions.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M8</span><span class="tag med">Medium</span></div>
+        <div><h3>Dead-lettered and expired entries keep their lock</h3><p>Lock release covers the completed, failed and pending transitions only, so those two paths hold a lease for its full duration after the entry is finished with.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M9</span><span class="tag med">Medium</span></div>
+        <div><h3>Metrics and health checks are inert</h3><p>No code in the library records a metric, so every rate reads as zero. The metrics health check probes a hardcoded queue name and is therefore always healthy, and the queue health check reads a queue called default. <b>As shipped, the health surface reports nothing about the running system.</b></p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M10</span><span class="tag med">Medium</span></div>
+        <div><h3>Lock acquisition swallows every error as contention</h3><p>Any exception, including a genuine storage failure, is reported as "already locked", which then drives the candidate scan forward instead of surfacing the problem.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M11</span><span class="tag med">Medium</span></div>
+        <div><h3>The storage interface has no teardown</h3><p>Neither dispose nor close appears on the interface, and the two implementations differ in shape, one synchronous and one asynchronous. Backend-agnostic shutdown is not expressible.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M12</span><span class="tag med">Medium</span></div>
+        <div><h3>Isar is a hard dependency for everyone</h3><p>A project using only the SQLite backend still pulls Isar and its native core, and is pinned to a version whose generated code already raises analyzer warnings on current Dart. Splitting the Isar backend into its own package removes that from every SQLite consumer.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M13</span><span class="tag med">Medium</span></div>
+        <div><h3>No schema version, no migration path</h3><p>Tables are created if absent and never versioned, and an unrecognised status string throws when a row is read. Any future column or status value has no safe way to reach databases already in the field.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">M14</span><span class="tag med">Medium</span></div>
+        <div><h3>Durability is one notch below what the name suggests</h3><p>The database runs write-ahead logging at normal synchronisation, so recently committed jobs can be lost on an operating system crash or power loss. That is a reasonable default, but a package called DuraQ should say so and let the caller ask for full synchronisation.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Performance</h2>
+      <span class="count">measured on this machine, single process</span>
+    </div>
+    <p class="lede">Both backends slow down as the backlog grows, which is the opposite of what a queue should do: the deeper the queue, the slower it drains. The cause is different in each, and in both cases it is avoidable work rather than a storage limit.</p>
+
+    <figure class="chart">
+      <figcaption>Dequeue cost rises with the size of the backlog</figcaption>
+      <p class="subcap">Time to claim and acknowledge one job, relative to the same operation against a 100-job backlog. Each series is indexed to its own baseline; absolute figures are in the table below.</p>
+      <div class="chart-scroll">
+        <svg viewBox="0 22 720 272" role="img" aria-label="Dequeue latency relative to a 100-job backlog. SQLite rises from 1.0 at 100 jobs to 3.7 at 20,000 jobs. Isar rises from 1.0 to 4.0 over the same range.">
+          <!-- gridlines -->
+          <g stroke="var(--chart-grid)" stroke-width="1">
+            <line x1="70" y1="200" x2="660" y2="200"></line>
+            <line x1="70" y1="150" x2="660" y2="150"></line>
+            <line x1="70" y1="100" x2="660" y2="100"></line>
+            <line x1="70" y1="50" x2="660" y2="50"></line>
+          </g>
+          <g fill="var(--ink-3)" font-family="IBM Plex Mono, monospace" font-size="12" text-anchor="end">
+            <text x="58" y="204">1×</text>
+            <text x="58" y="154">2×</text>
+            <text x="58" y="104">3×</text>
+            <text x="58" y="54">4×</text>
+          </g>
+          <!-- x axis -->
+          <line x1="70" y1="240" x2="660" y2="240" stroke="var(--rule-strong)" stroke-width="1"></line>
+          <g fill="var(--ink-3)" font-family="IBM Plex Mono, monospace" font-size="12" text-anchor="middle">
+            <text x="92" y="259">100</text>
+            <text x="316" y="259">1,000</text>
+            <text x="472" y="259">5,000</text>
+            <text x="607" y="259">20,000</text>
+          </g>
+          <text x="365" y="284" fill="var(--ink-3)" font-family="Archivo, sans-serif" font-size="11" letter-spacing="1.4" text-anchor="middle">PENDING ENTRIES IN THE QUEUE</text>
+
+          <!-- series: Isar -->
+          <polyline points="92,200 316,197 472,172 607,52" fill="none" stroke="var(--series-b)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+          <!-- series: SQLite -->
+          <polyline points="92,200 316,212 472,181 607,68" fill="none" stroke="var(--series-a)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+
+          <g class="pts">
+            <circle cx="92" cy="200" r="4.5" fill="var(--series-b)" stroke="var(--surface)" stroke-width="2" data-t="Isar · 100 jobs&#10;909 us · 1.00×"></circle>
+            <circle cx="316" cy="197" r="4.5" fill="var(--series-b)" stroke="var(--surface)" stroke-width="2" data-t="Isar · 1,000 jobs&#10;958 us · 1.05×"></circle>
+            <circle cx="472" cy="172" r="4.5" fill="var(--series-b)" stroke="var(--surface)" stroke-width="2" data-t="Isar · 5,000 jobs&#10;1,423 us · 1.57×"></circle>
+            <circle cx="607" cy="52" r="4.5" fill="var(--series-b)" stroke="var(--surface)" stroke-width="2" data-t="Isar · 20,000 jobs&#10;3,599 us · 3.96×"></circle>
+            <circle cx="92" cy="200" r="4.5" fill="var(--series-a)" stroke="var(--surface)" stroke-width="2" data-t="SQLite · 100 jobs&#10;325 us · 1.00×"></circle>
+            <circle cx="316" cy="212" r="4.5" fill="var(--series-a)" stroke="var(--surface)" stroke-width="2" data-t="SQLite · 1,000 jobs&#10;248 us · 0.76×"></circle>
+            <circle cx="472" cy="181" r="4.5" fill="var(--series-a)" stroke="var(--surface)" stroke-width="2" data-t="SQLite · 5,000 jobs&#10;453 us · 1.39×"></circle>
+            <circle cx="607" cy="68" r="4.5" fill="var(--series-a)" stroke="var(--surface)" stroke-width="2" data-t="SQLite · 20,000 jobs&#10;1,187 us · 3.65×"></circle>
+          </g>
+
+          <text x="620" y="47" fill="var(--series-b)" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600">Isar 4.0×</text>
+          <text x="620" y="80" fill="var(--series-a)" font-family="Archivo, sans-serif" font-size="12.5" font-weight="600">SQLite 3.7×</text>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--series-a)"></i> SQLite backend</span>
+        <span><i class="swatch" style="background:var(--series-b)"></i> Isar backend</span>
+      </div>
+    </figure>
+
+    <div class="tablewrap">
+      <table>
+        <caption>Throughput by backlog depth · one job per operation, claim and acknowledge</caption>
+        <thead>
+          <tr><th>Backlog</th><th>SQLite enqueue</th><th>SQLite dequeue</th><th>Isar enqueue</th><th>Isar dequeue</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>100 entries</td><td>9,239/s</td><td>325 µs</td><td>3,072/s</td><td>909 µs</td></tr>
+          <tr><td>1,000 entries</td><td>17,112/s</td><td>248 µs</td><td>4,304/s</td><td>958 µs</td></tr>
+          <tr><td>5,000 entries</td><td>21,919/s</td><td>453 µs</td><td>3,622/s</td><td>1,423 µs</td></tr>
+          <tr><td>20,000 entries</td><td>22,679/s</td><td>1,187 µs</td><td>2,563/s</td><td>3,599 µs</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="lede" style="margin-top:26px">Two further measurements are worth acting on. Enqueueing inside one transaction reaches <b>149,903 per second</b> against 22,679 for individual calls, so a batch enqueue on the public API would pay for itself immediately. And of the 1,187 microseconds a dequeue costs at twenty thousand entries, <b>1,086 are the expiry sweep</b> described in H4, against 52 microseconds for the query that actually finds the job.</p>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Test suite and process</h2>
+      <span class="count">Q1–Q6</span>
+    </div>
+
+    <div class="compact">
+      <div class="crow">
+        <div class="fmark"><span class="fid crit">Q1</span><span class="tag crit">Critical</span></div>
+        <div><h3>The published version does not pass its own tests</h3><p>On a clean checkout of this commit, the concurrent processing test fails deterministically. A release went out with a red suite, which means the suite is not gating anything.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid high">Q2</span><span class="tag high">High</span></div>
+        <div><h3>Coverage is thinnest exactly where the risk is</h3><p>Overall line coverage of the library is 48.7 per cent excluding generated code, and the two storage backends, which hold nearly all the complexity, are the least covered files of any real size.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid high">Q3</span><span class="tag high">High</span></div>
+        <div><h3>The isolation test cannot fail</h3><p>The transaction suite's isolation step runs two concurrent transactions and then asserts that it received two futures. It passes while isolation is broken, which is how C1 survived to release. The durability step in the same test reopens the file in the same process, which does not exercise durability either.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid high">Q4</span><span class="tag high">High</span></div>
+        <div><h3>No continuous integration and no lint configuration</h3><p>There is no workflow directory, so nothing runs the suite on a push. There is also no analyzer configuration, so the lints package listed as a dev dependency is never applied. The analyzer reports 40 issues under its defaults, including two deprecated calls on the lock path.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">Q5</span><span class="tag med">Medium</span></div>
+        <div><h3>The untested behaviours are the ones that fail</h3><p>Nothing covers crash recovery, retry timing, lease expiry, multi-process access, duplicate identifiers, dead-letter lock release, the time-to-live of an in-flight entry, or behaviour at any real backlog size. Every critical defect in this report sits in that gap.</p></div>
+      </div>
+      <div class="crow">
+        <div class="fmark"><span class="fid med">Q6</span><span class="tag med">Medium</span></div>
+        <div><h3>Tests lean on real databases and wall-clock waits</h3><p>The mock storage helper is present but unused, and timing-sensitive assertions rely on real delays. Both will make the suite flaky the moment it runs on shared continuous integration hardware.</p></div>
+      </div>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption>Line coverage by file · 84 tests, generated code excluded</caption>
+        <thead><tr><th>File</th><th>Covered</th><th>Lines</th><th style="width:34%">&nbsp;</th></tr></thead>
+        <tbody>
+          <tr><td>storage/isar_lock.dart</td><td>25.9%</td><td>29 / 112</td><td class="barcell"><i class="bar" style="width:25.9%"></i></td></tr>
+          <tr><td>storage/isar_storage.dart</td><td>28.5%</td><td>172 / 604</td><td class="barcell"><i class="bar" style="width:28.5%"></i></td></tr>
+          <tr><td>queue_entry.dart</td><td>48.5%</td><td>32 / 66</td><td class="barcell"><i class="bar" style="width:48.5%"></i></td></tr>
+          <tr><td>storage/sqlite_storage.dart</td><td>68.5%</td><td>150 / 219</td><td class="barcell"><i class="bar" style="width:68.5%"></i></td></tr>
+          <tr><td>queue.dart</td><td>70.3%</td><td>26 / 37</td><td class="barcell"><i class="bar" style="width:70.3%"></i></td></tr>
+          <tr><td>health/health_check.dart</td><td>84.6%</td><td>33 / 39</td><td class="barcell"><i class="bar" style="width:84.6%"></i></td></tr>
+          <tr><td>concurrent/queue_lock.dart</td><td>100%</td><td>53 / 53</td><td class="barcell"><i class="bar" style="width:100%"></i></td></tr>
+          <tr><td><b>Library total</b></td><td><b>48.7%</b></td><td>618 / 1268</td><td class="barcell"><i class="bar" style="width:48.7%"></i></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>What holds up</h2>
+      <span class="count">keep these decisions</span>
+    </div>
+    <div class="holds">
+      <div><h3>The layering is right</h3><p>Queue, storage interface, retry policy and dead letter queue are cleanly separated, which is why most of the fixes below are local.</p></div>
+      <div><h3>The SQL is parameterised throughout</h3><p>No string interpolation of user data anywhere in either backend.</p></div>
+      <div><h3>The SQLite schema is well chosen</h3><p>The composite retrieval index matches the query, and the partial indexes are the right instinct. One of them just needs the column order that would let the planner use it.</p></div>
+      <div><h3>The dead letter API is complete</h3><p>Retrieve, list with paging, retry, remove and purge, all covered by tests and the best-tested area of the package.</p></div>
+      <div><h3>Savepoint nesting is the correct mechanism</h3><p>The idea is sound; only the bookkeeping that decides when a savepoint is nested needs replacing.</p></div>
+      <div><h3>The recent fixes were real</h3><p>Releasing the lock when an entry is retried back to pending, and widening the driver constraint, both addressed genuine problems.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Suggested order of work</h2>
+      <span class="count">dependencies first</span>
+    </div>
+    <ol class="sequence">
+      <li>
+        <div><h3>Serialize access to the storage object</h3><p>A single-slot lock around storage operations closes the interleaving that causes both the transaction corruption and the phantom-empty queue, and removes the races underneath several lock findings. <span class="refs">C1 · C2 · H2</span></p></div>
+      </li>
+      <li>
+        <div><h3>Make a claim recoverable</h3><p>Honour the retry time in the candidate query, persist the lease on the entry, and reclaim expired leases on retrieval and at startup. This is what turns the package durable in the sense the name promises. <span class="refs">C3 · C4 · M1 · M4</span></p></div>
+      </li>
+      <li>
+        <div><h3>Give Isar a unique entry and a real transaction</h3><p>A unique composite index stops duplicate delivery; scoping the transaction body to one write transaction restores atomicity. If neither is worth the effort, the honest alternative is to withdraw the backend. <span class="refs">C5 · C6 · M12</span></p></div>
+      </li>
+      <li>
+        <div><h3>Take avoidable work out of the dequeue path</h3><p>Move the expiry sweep to maintenance, replace the offset walk, and let the Isar queries use the indexes the model already declares. <span class="refs">H4 · H5</span></p></div>
+      </li>
+      <li>
+        <div><h3>Define the lifecycle at the interface</h3><p>Retention and maintenance, teardown, a package-level error type, and one agreed answer to storing a duplicate identifier. <span class="refs">H6 · H7 · M11</span></p></div>
+      </li>
+      <li>
+        <div><h3>Configure for the concurrency you invite</h3><p>Busy timeout and contention retries, lock release scoped to the owner, and a README section stating what is supported across processes and what is not. <span class="refs">H1 · H3 · M14</span></p></div>
+      </li>
+      <li>
+        <div><h3>Put a gate in front of the next release</h3><p>Continuous integration on every push, an analyzer configuration that applies the lints already listed as a dependency, and a regression test for each defect above, starting with the one that is red today. <span class="refs">Q1 · Q4 · Q5</span></p></div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    <p><b>Method.</b> Every defect was reproduced against commit 5315698 with standalone programs driving the public API, and the query-plan and timing figures come from the same database files the library creates. Benchmarks ran single-process on Dart 3.11.5, macOS arm64, with one job per operation; they are useful as relative shape, not as absolute numbers for other hardware.</p>
+    <p><b>Scope.</b> The review covers the library source, its test suite, and the README's claims. Generated Isar code was read but not audited. No fixes were applied to the repository.</p>
+  </footer>
+</div>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+<script>
+  (function () {
+    var tip = document.getElementById('tip');
+    document.querySelectorAll('.pts circle').forEach(function (c) {
+      c.addEventListener('mouseenter', function (e) {
+        tip.textContent = c.getAttribute('data-t');
+        tip.classList.add('on');
+        var r = c.getBoundingClientRect();
+        tip.style.left = Math.min(window.innerWidth - 170, r.left + 14) + 'px';
+        tip.style.top = Math.max(8, r.top - 46) + 'px';
+      });
+      c.addEventListener('mouseleave', function () { tip.classList.remove('on'); });
+    });
+  })();
+</script>

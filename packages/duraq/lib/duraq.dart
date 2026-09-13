@@ -1,0 +1,21 @@
+/// A durable queuing system implemented in Dart.
+///
+/// Ships the SQLite backend. The Isar backend lives in `package:duraq_isar`,
+/// so a project using only SQLite does not resolve `isar` and its generated
+/// code.
+library duraq;
+
+export 'src/codec.dart';
+export 'src/errors.dart';
+export 'src/queue.dart';
+export 'src/queue_entry.dart';
+export 'src/queue_manager.dart';
+export 'src/storage/storage_interface.dart';
+export 'src/storage/maintenance.dart';
+export 'src/storage/sqlite_storage.dart';
+export 'src/retry/retry_policy.dart';
+export 'src/retry/exponential_backoff.dart';
+export 'src/dead_letter/dead_letter_queue.dart';
+export 'src/concurrent.dart';
+export 'src/metrics.dart';
+export 'src/health/health_check.dart';

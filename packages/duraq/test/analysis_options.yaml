@@ -1,0 +1,12 @@
+# The library's rules, minus two that only make sense for shipped code.
+include: ../analysis_options.yaml
+
+linter:
+  rules:
+    # Tests throw bare strings to stand in for a processor blowing up, and
+    # several assert on the thrown value. Rewriting them to throw Exception
+    # would change what those tests assert, for no gain in a test-only file.
+    only_throw_errors: false
+    # Temp-directory setup and teardown uses the async dart:io calls. The lint
+    # is about not blocking a UI isolate; a test process has nothing to block.
+    avoid_slow_async_io: false

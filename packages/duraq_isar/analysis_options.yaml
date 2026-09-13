@@ -1,0 +1,29 @@
+# The same rules as duraq. Kept as its own file rather than an include so the
+# package analyses on its own, without the other one present.
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    # isar_generator output. isar 3.1.0+1 emits hundreds of
+    # `experimental_member_use` warnings against current Dart, which would
+    # drown every real finding.
+    - "**/*.g.dart"
+
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+  errors:
+    unused_import: error
+    unawaited_futures: error
+
+linter:
+  rules:
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - close_sinks
+    - discarded_futures
+    - only_throw_errors
+    - test_types_in_equals
+    - throw_in_finally
+    - unawaited_futures

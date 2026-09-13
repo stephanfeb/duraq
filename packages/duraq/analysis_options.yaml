@@ -1,0 +1,34 @@
+# The `lints` dev dependency has been in pubspec.yaml since 1.0.0 but was never
+# applied, because without this file nothing tells the analyzer to use it.
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    # isar_generator output. It is not ours to fix, and isar 3.1.0+1 emits
+    # hundreds of `experimental_member_use` warnings against current Dart, which
+    # would drown every real finding. Regenerating it is M12's problem.
+    - "**/*.g.dart"
+
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+  errors:
+    # The gate runs with --fatal-infos, so anything the analyzer reports stops a
+    # push. These two are called out because they are the ones that have bitten
+    # this package: an unused import survived a release, and a swallowed future
+    # is the shape of bug C1 through C4 all were.
+    unused_import: error
+    unawaited_futures: error
+
+linter:
+  rules:
+    # Beyond `recommended`: rules that catch the failure modes the audit found.
+    - avoid_slow_async_io
+    - cancel_subscriptions
+    - close_sinks
+    - discarded_futures
+    - only_throw_errors
+    - test_types_in_equals
+    - throw_in_finally
+    - unawaited_futures

@@ -1,0 +1,6 @@
+# Isar holds a native database per open instance, and these suites open one per
+# test. Above this the test process is killed outright (exit 137) rather than
+# failing: measured here as one kill in two runs at the default, and one in four
+# at 4, always on the run that also had to recompile. Two was clean across
+# repeated runs with recompilation forced each time, and costs about a second.
+concurrency: 2
