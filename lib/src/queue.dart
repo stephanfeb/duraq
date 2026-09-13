@@ -40,8 +40,16 @@ class Queue<T> {
 
   /// Adds a pre-built QueueEntry to the queue.
   /// Useful for advanced scenarios like scheduling.
-  Future<void> enqueueEntry(QueueEntry<T> entry) async {
-    await _storage.store(name, entry);
+  ///
+  /// The entry carries its own id, so it can collide with one already stored.
+  /// By default that throws a [DuplicateEntryException]; pass [onConflict] to
+  /// overwrite the stored entry or to keep it, which is how a producer makes a
+  /// repeated enqueue idempotent.
+  Future<void> enqueueEntry(
+    QueueEntry<T> entry, {
+    StoreConflict onConflict = StoreConflict.fail,
+  }) async {
+    await _storage.store(name, entry, onConflict: onConflict);
   }
 
   /// Retrieves and removes the next item from the queue

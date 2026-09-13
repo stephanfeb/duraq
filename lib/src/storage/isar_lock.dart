@@ -1,10 +1,18 @@
 import 'dart:async';
 import 'package:isar/isar.dart';
 import 'isar_models.dart';
+import 'isar_write_scope.dart';
 
 /// Isar-based implementation of queue entry locking
 class IsarQueueLock {
   final Isar _isar;
+
+  /// Lock ids acquired through this instance, keyed by queue name and entry id.
+  ///
+  /// Locks taken elsewhere are not in here, which is what keeps
+  /// [releaseAllLocks] from freeing entries that are still being processed by
+  /// another consumer.
+  final Map<String, String> _ownedLocks = {};
 
   IsarQueueLock(this._isar);
 
@@ -20,31 +28,35 @@ class IsarQueueLock {
     final expiresAt = now.add(lockDuration);
 
     try {
-      // Clean up expired locks first (without transaction)
-      await _cleanupExpiredLocksSync();
+      return await IsarWriteScope.run(_isar, () async {
+        // Clean up expired locks first
+        await _isar.queueLockCollections
+            .where()
+            .expiresAtLessThan(now)
+            .deleteAll();
 
-      // Check if lock already exists
-      final existingLock = await _isar.queueLockCollections
-          .filter()
-          .queueNameEqualTo(queueName)
-          .and()
-          .entryIdEqualTo(entryId)
-          .findFirst();
+        // Check if lock already exists
+        final existingLock = await _isar.queueLockCollections
+            .where()
+            .lockKeyEqualTo(lockKeyFor(queueName, entryId))
+            .findFirst();
 
-      if (existingLock != null) {
-        return null; // Entry already locked
-      }
+        if (existingLock != null) {
+          return null; // Entry already locked
+        }
 
-      // Create new lock
-      final lock = QueueLockCollection()
-        ..queueName = queueName
-        ..entryId = entryId
-        ..lockId = lockId
-        ..acquiredAt = now
-        ..expiresAt = expiresAt;
+        // Create new lock
+        final lock = QueueLockCollection()
+          ..queueName = queueName
+          ..entryId = entryId
+          ..lockId = lockId
+          ..acquiredAt = now
+          ..expiresAt = expiresAt;
 
-      await _isar.queueLockCollections.put(lock);
-      return lockId;
+        await _isar.queueLockCollections.put(lock);
+        _ownedLocks[lockKeyFor(queueName, entryId)] = lockId;
+        return lockId;
+      });
     } catch (e) {
       // If operation fails, the entry is already locked
       return null;
@@ -54,15 +66,13 @@ class IsarQueueLock {
   /// Releases a lock on an entry
   Future<bool> release(String queueName, String entryId) async {
     try {
-      late int deletedCount;
-      await _isar.writeTxn(() async {
-        deletedCount = await _isar.queueLockCollections
-            .filter()
-            .queueNameEqualTo(queueName)
-            .and()
-            .entryIdEqualTo(entryId)
+      final deletedCount = await IsarWriteScope.run(_isar, () async {
+        return await _isar.queueLockCollections
+            .where()
+            .lockKeyEqualTo(lockKeyFor(queueName, entryId))
             .deleteAll();
       });
+      _ownedLocks.remove(lockKeyFor(queueName, entryId));
       return deletedCount > 0;
     } catch (e) {
       return false;
@@ -71,36 +81,25 @@ class IsarQueueLock {
 
   /// Checks if an entry is currently locked
   Future<bool> isLocked(String queueName, String entryId) async {
-    await _cleanupExpiredLocksSync();
+    await _cleanupExpiredLocks();
 
     final lock = await _isar.queueLockCollections
-        .filter()
-        .queueNameEqualTo(queueName)
-        .and()
-        .entryIdEqualTo(entryId)
+        .where()
+        .lockKeyEqualTo(lockKeyFor(queueName, entryId))
         .findFirst();
 
     return lock != null;
   }
 
-  /// Cleans up expired locks (with transaction)
+  /// Cleans up expired locks
   Future<void> _cleanupExpiredLocks() async {
     final now = DateTime.now();
-    await _isar.writeTxn(() async {
+    await IsarWriteScope.run(_isar, () async {
       await _isar.queueLockCollections
           .where()
           .expiresAtLessThan(now)
           .deleteAll();
     });
-  }
-
-  /// Cleans up expired locks synchronously (without starting new transaction)
-  Future<void> _cleanupExpiredLocksSync() async {
-    final now = DateTime.now();
-    await _isar.queueLockCollections
-        .where()
-        .expiresAtLessThan(now)
-        .deleteAll();
   }
 
   /// Returns the number of currently held locks
@@ -109,13 +108,25 @@ class IsarQueueLock {
     return await _isar.queueLockCollections.count();
   }
 
-  /// Forcefully releases all locks
+  /// Releases every lock this instance is holding.
+  ///
+  /// Locks held by other consumers are left alone; releasing those would hand
+  /// their in-flight entries to someone else while they are still working.
   Future<int> releaseAllLocks() async {
-    late int count;
-    await _isar.writeTxn(() async {
-      count = await _isar.queueLockCollections.count();
-      await _isar.queueLockCollections.clear();
+    if (_ownedLocks.isEmpty) return 0;
+
+    final lockIds = _ownedLocks.values.toList();
+    final released = await IsarWriteScope.run(_isar, () async {
+      var count = 0;
+      for (final lockId in lockIds) {
+        count += await _isar.queueLockCollections
+            .where()
+            .lockIdEqualTo(lockId)
+            .deleteAll();
+      }
+      return count;
     });
-    return count;
+    _ownedLocks.clear();
+    return released;
   }
 }

@@ -8,6 +8,15 @@ class QueueLock {
   /// The lock table name
   final String _tableName;
 
+  /// Lock ids acquired through this instance, keyed by queue name and entry id.
+  ///
+  /// Locks taken by another process, isolate, or storage instance are not in
+  /// here, which is what keeps [releaseAllLocks] from freeing entries that are
+  /// still being processed elsewhere.
+  final Map<String, String> _ownedLocks = {};
+
+  String _ownerKey(String queueName, String entryId) => '$queueName\u0000$entryId';
+
   /// Creates a new queue lock manager
   QueueLock(this._db, {String tableName = 'queue_locks'}) : _tableName = tableName {
     _createLockTable();
@@ -63,6 +72,7 @@ class QueueLock {
           now.millisecondsSinceEpoch,
           expiresAt.millisecondsSinceEpoch,
         ]);
+        _ownedLocks[_ownerKey(queueName, entryId)] = lockId;
         return lockId;
       } finally {
         stmt.dispose();
@@ -83,6 +93,7 @@ class QueueLock {
     try {
       stmt.execute([queueName, entryId]);
       final changes = _db.getUpdatedRows();
+      _ownedLocks.remove(_ownerKey(queueName, entryId));
       return changes > 0;
     } finally {
       stmt.dispose();
@@ -126,14 +137,28 @@ class QueueLock {
     return result.first['count'] as int;
   }
 
-  /// Forcefully releases all locks
+  /// Releases every lock this instance is holding.
+  ///
+  /// Locks held by other processes, isolates, or storage instances are left
+  /// alone; releasing those would hand their in-flight entries to another
+  /// consumer while they are still being processed.
   Future<int> releaseAllLocks() async {
-    final stmt = _db.prepare('DELETE FROM $_tableName');
+    if (_ownedLocks.isEmpty) return 0;
+
+    final stmt = _db.prepare('''
+      DELETE FROM $_tableName
+      WHERE lock_id = ?
+    ''');
+    var released = 0;
     try {
-      stmt.execute([]);
-      return _db.getUpdatedRows();
+      for (final lockId in _ownedLocks.values) {
+        stmt.execute([lockId]);
+        released += _db.getUpdatedRows();
+      }
     } finally {
       stmt.dispose();
     }
+    _ownedLocks.clear();
+    return released;
   }
 }

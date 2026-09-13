@@ -40,14 +40,22 @@ void main() {
 
       // Simulate _handleFailure: set status back to pending for retry
       // (this is what duraq's Queue._handleFailure does when retries remain)
+      final retryAt = DateTime.now().add(Duration(milliseconds: 200));
       await storage.updateEntryStatus(
         'broadcast-queue',
         'retry-entry-1',
         EntryStatus.pending,
         errorMessage: 'Connection refused',
-        nextRetryAt: now.add(Duration(seconds: 10)),
+        nextRetryAt: retryAt,
         attempts: 1,
       );
+
+      // Until the retry time arrives the entry is held back by the backoff
+      // gate, so lock release is asserted after the delay rather than before it.
+      expect(await storage.retrieve('broadcast-queue'), isNull,
+          reason: 'Entry should wait for its retry time');
+
+      await Future<void>.delayed(Duration(milliseconds: 300));
 
       // The entry should now be retrievable again — lock should have been released
       final retried = await storage.retrieve('broadcast-queue');

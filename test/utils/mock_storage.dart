@@ -101,8 +101,27 @@ class MockStorage implements StorageInterface {
   }
 
   @override
-  Future<void> store(String queueName, QueueEntry entry) async {
-    _queues.putIfAbsent(queueName, () => []).add(entry);
+  Future<void> store(
+    String queueName,
+    QueueEntry entry, {
+    StoreConflict onConflict = StoreConflict.fail,
+  }) async {
+    final entries = _queues.putIfAbsent(queueName, () => []);
+    final existing = entries.indexWhere((e) => e.id == entry.id);
+
+    if (existing >= 0) {
+      switch (onConflict) {
+        case StoreConflict.fail:
+          throw DuplicateEntryException(queueName, entry.id);
+        case StoreConflict.ignore:
+          return;
+        case StoreConflict.replace:
+          entries[existing] = entry;
+          return;
+      }
+    }
+
+    entries.add(entry);
   }
 
   @override
@@ -212,5 +231,43 @@ class MockStorage implements StorageInterface {
   @override
   Future<List<QueueEntry>> retrieveAll(String queueName) async {
     return _queues[queueName]?.toList() ?? [];
+  }
+
+  /// Deletes finished entries, so the mock answers the same calls the real
+  /// backends do. Nothing here has a lease, so nothing is ever reclaimed.
+  @override
+  Future<MaintenanceReport> runMaintenance({
+    RetentionPolicy policy = const RetentionPolicy(),
+    String? queueName,
+  }) async {
+    final now = DateTime.now();
+    final names = queueName != null ? [queueName] : _queues.keys.toList();
+
+    var expired = 0;
+    var removed = 0;
+    for (final name in names) {
+      final entries = _queues[name];
+      if (entries == null) continue;
+
+      for (var i = 0; i < entries.length; i++) {
+        final entry = entries[i];
+        if (entry.status == EntryStatus.pending && entry.isExpired) {
+          entries[i] = entry.copyWith(
+            status: EntryStatus.expired,
+            lastUpdatedAt: now,
+          );
+          expired++;
+        }
+      }
+
+      removed += entries.length;
+      entries.removeWhere((entry) {
+        final age = policy.forStatus(entry.status);
+        return age != null && now.difference(entry.lastUpdatedAt) > age;
+      });
+      removed -= entries.length;
+    }
+
+    return MaintenanceReport(expired: expired, removed: removed);
   }
 } 

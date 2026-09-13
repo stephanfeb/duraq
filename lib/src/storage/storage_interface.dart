@@ -1,4 +1,21 @@
 import '../queue_entry.dart';
+import 'maintenance.dart';
+
+/// What `store` should do when the storage already holds an entry with the
+/// same id.
+enum StoreConflict {
+  /// Throw a `DuplicateEntryException`. The default: a repeated id is usually
+  /// a mistake, and silence would hide it.
+  fail,
+
+  /// Overwrite the stored entry with the one being stored. Use this when the
+  /// caller owns the id and is restating the entry.
+  replace,
+
+  /// Keep the stored entry and do nothing. Use this to make an enqueue
+  /// idempotent, for a producer that retries a call it got no answer for.
+  ignore,
+}
 
 /// Interface for queue storage implementations
 abstract class StorageInterface {
@@ -14,8 +31,16 @@ abstract class StorageInterface {
   /// Executes operations within a transaction
   Future<T> transaction<T>(Future<T> Function() operations);
 
-  /// Stores a queue entry
-  Future<void> store(String queueName, QueueEntry entry);
+  /// Stores a queue entry.
+  ///
+  /// Entry ids are unique across the whole storage, not per queue. If an entry
+  /// with the same id is already stored, [onConflict] decides what happens; by
+  /// default a `DuplicateEntryException` is thrown.
+  Future<void> store(
+    String queueName,
+    QueueEntry entry, {
+    StoreConflict onConflict = StoreConflict.fail,
+  });
 
   /// Retrieves the next entry from the queue
   Future<QueueEntry?> retrieve(String queueName);
@@ -69,4 +94,27 @@ abstract class StorageInterface {
 
   /// Checks if the storage is responsive
   Future<void> ping();
+
+  /// Performs one pass of periodic upkeep and reports what it did.
+  ///
+  /// A pass returns entries whose consumer died to the queue, marks entries
+  /// that outlived their deadline as expired, and deletes finished entries
+  /// older than [policy] allows. Nothing in this package calls it on a
+  /// schedule: run it from your own timer, or at startup, as often as the
+  /// queue's volume warrants.
+  ///
+  /// Pass [queueName] to limit the pass to one queue.
+  ///
+  /// Backends are not required to support maintenance. The built-in SQLite and
+  /// Isar backends do; a custom backend that does not will throw
+  /// [UnsupportedError] from this default implementation.
+  Future<MaintenanceReport> runMaintenance({
+    RetentionPolicy policy = const RetentionPolicy(),
+    String? queueName,
+  }) async {
+    throw UnsupportedError(
+      '$runtimeType does not support maintenance. Override runMaintenance to '
+      'support it.',
+    );
+  }
 } 

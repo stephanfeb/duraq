@@ -805,15 +805,15 @@ const QueueEntryCollectionSchema = CollectionSchema(
       name: r'entryId',
       type: IsarType.string,
     ),
-    r'errorMessage': PropertySchema(
+    r'entryKey': PropertySchema(
       id: 4,
-      name: r'errorMessage',
+      name: r'entryKey',
       type: IsarType.string,
     ),
-    r'expirationTimestamp': PropertySchema(
+    r'errorMessage': PropertySchema(
       id: 5,
-      name: r'expirationTimestamp',
-      type: IsarType.long,
+      name: r'errorMessage',
+      type: IsarType.string,
     ),
     r'expiresAt': PropertySchema(
       id: 6,
@@ -840,28 +840,18 @@ const QueueEntryCollectionSchema = CollectionSchema(
       name: r'queueName',
       type: IsarType.string,
     ),
-    r'retrievalKey': PropertySchema(
+    r'queueStatusKey': PropertySchema(
       id: 11,
-      name: r'retrievalKey',
+      name: r'queueStatusKey',
       type: IsarType.string,
     ),
-    r'retryTimestamp': PropertySchema(
-      id: 12,
-      name: r'retryTimestamp',
-      type: IsarType.long,
-    ),
     r'scheduledFor': PropertySchema(
-      id: 13,
+      id: 12,
       name: r'scheduledFor',
       type: IsarType.dateTime,
     ),
-    r'scheduledTimestamp': PropertySchema(
-      id: 14,
-      name: r'scheduledTimestamp',
-      type: IsarType.long,
-    ),
     r'status': PropertySchema(
-      id: 15,
+      id: 13,
       name: r'status',
       type: IsarType.string,
       enumMap: _QueueEntryCollectionstatusEnumValueMap,
@@ -886,9 +876,9 @@ const QueueEntryCollectionSchema = CollectionSchema(
         )
       ],
     ),
-    r'queueName': IndexSchema(
-      id: -6255641391181223237,
-      name: r'queueName',
+    r'queueName_expiresAt': IndexSchema(
+      id: -7668964105198360985,
+      name: r'queueName_expiresAt',
       unique: false,
       replace: false,
       properties: [
@@ -896,69 +886,9 @@ const QueueEntryCollectionSchema = CollectionSchema(
           name: r'queueName',
           type: IndexType.hash,
           caseSensitive: true,
-        )
-      ],
-    ),
-    r'expiresAt': IndexSchema(
-      id: 4994901953235663716,
-      name: r'expiresAt',
-      unique: false,
-      replace: false,
-      properties: [
+        ),
         IndexPropertySchema(
           name: r'expiresAt',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'scheduledFor': IndexSchema(
-      id: -13963062187374339,
-      name: r'scheduledFor',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'scheduledFor',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'nextRetryAt': IndexSchema(
-      id: -8739505323881011336,
-      name: r'nextRetryAt',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'nextRetryAt',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'attempts': IndexSchema(
-      id: 2067170731140038399,
-      name: r'attempts',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'attempts',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'priority': IndexSchema(
-      id: -6477851841645083544,
-      name: r'priority',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'priority',
           type: IndexType.value,
           caseSensitive: false,
         )
@@ -977,19 +907,27 @@ const QueueEntryCollectionSchema = CollectionSchema(
         )
       ],
     ),
-    r'retrievalKey_status_priority': IndexSchema(
-      id: -8394728564768144936,
-      name: r'retrievalKey_status_priority',
+    r'entryKey': IndexSchema(
+      id: 7468454376934395055,
+      name: r'entryKey',
       unique: false,
       replace: false,
       properties: [
         IndexPropertySchema(
-          name: r'retrievalKey',
+          name: r'entryKey',
           type: IndexType.hash,
           caseSensitive: true,
-        ),
+        )
+      ],
+    ),
+    r'queueStatusKey_priority_createdAt': IndexSchema(
+      id: 8258229708068022404,
+      name: r'queueStatusKey_priority_createdAt',
+      unique: false,
+      replace: false,
+      properties: [
         IndexPropertySchema(
-          name: r'status',
+          name: r'queueStatusKey',
           type: IndexType.hash,
           caseSensitive: true,
         ),
@@ -997,43 +935,9 @@ const QueueEntryCollectionSchema = CollectionSchema(
           name: r'priority',
           type: IndexType.value,
           caseSensitive: false,
-        )
-      ],
-    ),
-    r'expiration_index': IndexSchema(
-      id: -5757265293708658063,
-      name: r'expiration_index',
-      unique: false,
-      replace: false,
-      properties: [
+        ),
         IndexPropertySchema(
-          name: r'expirationTimestamp',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'scheduled_index': IndexSchema(
-      id: -639176907899392,
-      name: r'scheduled_index',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'scheduledTimestamp',
-          type: IndexType.value,
-          caseSensitive: false,
-        )
-      ],
-    ),
-    r'retry_index': IndexSchema(
-      id: -3566064736063068951,
-      name: r'retry_index',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'retryTimestamp',
+          name: r'createdAt',
           type: IndexType.value,
           caseSensitive: false,
         )
@@ -1056,6 +960,7 @@ int _queueEntryCollectionEstimateSize(
   var bytesCount = offsets.last;
   bytesCount += 3 + object.data.length * 3;
   bytesCount += 3 + object.entryId.length * 3;
+  bytesCount += 3 + object.entryKey.length * 3;
   {
     final value = object.errorMessage;
     if (value != null) {
@@ -1063,7 +968,7 @@ int _queueEntryCollectionEstimateSize(
     }
   }
   bytesCount += 3 + object.queueName.length * 3;
-  bytesCount += 3 + object.retrievalKey.length * 3;
+  bytesCount += 3 + object.queueStatusKey.length * 3;
   bytesCount += 3 + object.status.name.length * 3;
   return bytesCount;
 }
@@ -1078,18 +983,16 @@ void _queueEntryCollectionSerialize(
   writer.writeDateTime(offsets[1], object.createdAt);
   writer.writeString(offsets[2], object.data);
   writer.writeString(offsets[3], object.entryId);
-  writer.writeString(offsets[4], object.errorMessage);
-  writer.writeLong(offsets[5], object.expirationTimestamp);
+  writer.writeString(offsets[4], object.entryKey);
+  writer.writeString(offsets[5], object.errorMessage);
   writer.writeDateTime(offsets[6], object.expiresAt);
   writer.writeDateTime(offsets[7], object.lastUpdatedAt);
   writer.writeDateTime(offsets[8], object.nextRetryAt);
   writer.writeLong(offsets[9], object.priority);
   writer.writeString(offsets[10], object.queueName);
-  writer.writeString(offsets[11], object.retrievalKey);
-  writer.writeLong(offsets[12], object.retryTimestamp);
-  writer.writeDateTime(offsets[13], object.scheduledFor);
-  writer.writeLong(offsets[14], object.scheduledTimestamp);
-  writer.writeString(offsets[15], object.status.name);
+  writer.writeString(offsets[11], object.queueStatusKey);
+  writer.writeDateTime(offsets[12], object.scheduledFor);
+  writer.writeString(offsets[13], object.status.name);
 }
 
 QueueEntryCollection _queueEntryCollectionDeserialize(
@@ -1103,16 +1006,16 @@ QueueEntryCollection _queueEntryCollectionDeserialize(
   object.createdAt = reader.readDateTime(offsets[1]);
   object.data = reader.readString(offsets[2]);
   object.entryId = reader.readString(offsets[3]);
-  object.errorMessage = reader.readStringOrNull(offsets[4]);
+  object.errorMessage = reader.readStringOrNull(offsets[5]);
   object.expiresAt = reader.readDateTimeOrNull(offsets[6]);
   object.id = id;
   object.lastUpdatedAt = reader.readDateTime(offsets[7]);
   object.nextRetryAt = reader.readDateTimeOrNull(offsets[8]);
   object.priority = reader.readLong(offsets[9]);
   object.queueName = reader.readString(offsets[10]);
-  object.scheduledFor = reader.readDateTimeOrNull(offsets[13]);
+  object.scheduledFor = reader.readDateTimeOrNull(offsets[12]);
   object.status = _QueueEntryCollectionstatusValueEnumMap[
-          reader.readStringOrNull(offsets[15])] ??
+          reader.readStringOrNull(offsets[13])] ??
       EntryStatus.pending;
   return object;
 }
@@ -1133,9 +1036,9 @@ P _queueEntryCollectionDeserializeProp<P>(
     case 3:
       return (reader.readString(offset)) as P;
     case 4:
-      return (reader.readStringOrNull(offset)) as P;
+      return (reader.readString(offset)) as P;
     case 5:
-      return (reader.readLongOrNull(offset)) as P;
+      return (reader.readStringOrNull(offset)) as P;
     case 6:
       return (reader.readDateTimeOrNull(offset)) as P;
     case 7:
@@ -1149,12 +1052,8 @@ P _queueEntryCollectionDeserializeProp<P>(
     case 11:
       return (reader.readString(offset)) as P;
     case 12:
-      return (reader.readLongOrNull(offset)) as P;
-    case 13:
       return (reader.readDateTimeOrNull(offset)) as P;
-    case 14:
-      return (reader.readLongOrNull(offset)) as P;
-    case 15:
+    case 13:
       return (_QueueEntryCollectionstatusValueEnumMap[
               reader.readStringOrNull(offset)] ??
           EntryStatus.pending) as P;
@@ -1200,78 +1099,6 @@ extension QueueEntryCollectionQueryWhereSort
       anyId() {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(const IdWhereClause.any());
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyExpiresAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'expiresAt'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyScheduledFor() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'scheduledFor'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyNextRetryAt() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'nextRetryAt'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyAttempts() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'attempts'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyPriority() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'priority'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'expiration_index'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyScheduledTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'scheduled_index'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhere>
-      anyRetryTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'retry_index'),
-      );
     });
   }
 }
@@ -1392,28 +1219,28 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      queueNameEqualTo(String queueName) {
+      queueNameEqualToAnyExpiresAt(String queueName) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'queueName',
+        indexName: r'queueName_expiresAt',
         value: [queueName],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      queueNameNotEqualTo(String queueName) {
+      queueNameNotEqualToAnyExpiresAt(String queueName) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
+              indexName: r'queueName_expiresAt',
               lower: [],
               upper: [queueName],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
+              indexName: r'queueName_expiresAt',
               lower: [queueName],
               includeLower: false,
               upper: [],
@@ -1421,13 +1248,13 @@ extension QueueEntryCollectionQueryWhere
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
+              indexName: r'queueName_expiresAt',
               lower: [queueName],
               includeLower: false,
               upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
+              indexName: r'queueName_expiresAt',
               lower: [],
               upper: [queueName],
               includeUpper: false,
@@ -1437,66 +1264,69 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtIsNull() {
+      queueNameEqualToExpiresAtIsNull(String queueName) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'expiresAt',
-        value: [null],
+        indexName: r'queueName_expiresAt',
+        value: [queueName, null],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtIsNotNull() {
+      queueNameEqualToExpiresAtIsNotNull(String queueName) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiresAt',
-        lower: [null],
+        indexName: r'queueName_expiresAt',
+        lower: [queueName, null],
         includeLower: false,
-        upper: [],
+        upper: [
+          queueName,
+        ],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtEqualTo(DateTime? expiresAt) {
+      queueNameExpiresAtEqualTo(String queueName, DateTime? expiresAt) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'expiresAt',
-        value: [expiresAt],
+        indexName: r'queueName_expiresAt',
+        value: [queueName, expiresAt],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtNotEqualTo(DateTime? expiresAt) {
+      queueNameEqualToExpiresAtNotEqualTo(
+          String queueName, DateTime? expiresAt) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiresAt',
-              lower: [],
-              upper: [expiresAt],
+              indexName: r'queueName_expiresAt',
+              lower: [queueName],
+              upper: [queueName, expiresAt],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiresAt',
-              lower: [expiresAt],
+              indexName: r'queueName_expiresAt',
+              lower: [queueName, expiresAt],
               includeLower: false,
-              upper: [],
+              upper: [queueName],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiresAt',
-              lower: [expiresAt],
+              indexName: r'queueName_expiresAt',
+              lower: [queueName, expiresAt],
               includeLower: false,
-              upper: [],
+              upper: [queueName],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiresAt',
-              lower: [],
-              upper: [expiresAt],
+              indexName: r'queueName_expiresAt',
+              lower: [queueName],
+              upper: [queueName, expiresAt],
               includeUpper: false,
             ));
       }
@@ -1504,37 +1334,40 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtGreaterThan(
+      queueNameEqualToExpiresAtGreaterThan(
+    String queueName,
     DateTime? expiresAt, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiresAt',
-        lower: [expiresAt],
+        indexName: r'queueName_expiresAt',
+        lower: [queueName, expiresAt],
         includeLower: include,
-        upper: [],
+        upper: [queueName],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtLessThan(
+      queueNameEqualToExpiresAtLessThan(
+    String queueName,
     DateTime? expiresAt, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiresAt',
-        lower: [],
-        upper: [expiresAt],
+        indexName: r'queueName_expiresAt',
+        lower: [queueName],
+        upper: [queueName, expiresAt],
         includeUpper: include,
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expiresAtBetween(
+      queueNameEqualToExpiresAtBetween(
+    String queueName,
     DateTime? lowerExpiresAt,
     DateTime? upperExpiresAt, {
     bool includeLower = true,
@@ -1542,426 +1375,10 @@ extension QueueEntryCollectionQueryWhere
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiresAt',
-        lower: [lowerExpiresAt],
+        indexName: r'queueName_expiresAt',
+        lower: [queueName, lowerExpiresAt],
         includeLower: includeLower,
-        upper: [upperExpiresAt],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'scheduledFor',
-        value: [null],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduledFor',
-        lower: [null],
-        includeLower: false,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForEqualTo(DateTime? scheduledFor) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'scheduledFor',
-        value: [scheduledFor],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForNotEqualTo(DateTime? scheduledFor) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduledFor',
-              lower: [],
-              upper: [scheduledFor],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduledFor',
-              lower: [scheduledFor],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduledFor',
-              lower: [scheduledFor],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduledFor',
-              lower: [],
-              upper: [scheduledFor],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForGreaterThan(
-    DateTime? scheduledFor, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduledFor',
-        lower: [scheduledFor],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForLessThan(
-    DateTime? scheduledFor, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduledFor',
-        lower: [],
-        upper: [scheduledFor],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledForBetween(
-    DateTime? lowerScheduledFor,
-    DateTime? upperScheduledFor, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduledFor',
-        lower: [lowerScheduledFor],
-        includeLower: includeLower,
-        upper: [upperScheduledFor],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'nextRetryAt',
-        value: [null],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'nextRetryAt',
-        lower: [null],
-        includeLower: false,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtEqualTo(DateTime? nextRetryAt) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'nextRetryAt',
-        value: [nextRetryAt],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtNotEqualTo(DateTime? nextRetryAt) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'nextRetryAt',
-              lower: [],
-              upper: [nextRetryAt],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'nextRetryAt',
-              lower: [nextRetryAt],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'nextRetryAt',
-              lower: [nextRetryAt],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'nextRetryAt',
-              lower: [],
-              upper: [nextRetryAt],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtGreaterThan(
-    DateTime? nextRetryAt, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'nextRetryAt',
-        lower: [nextRetryAt],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtLessThan(
-    DateTime? nextRetryAt, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'nextRetryAt',
-        lower: [],
-        upper: [nextRetryAt],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      nextRetryAtBetween(
-    DateTime? lowerNextRetryAt,
-    DateTime? upperNextRetryAt, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'nextRetryAt',
-        lower: [lowerNextRetryAt],
-        includeLower: includeLower,
-        upper: [upperNextRetryAt],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      attemptsEqualTo(int attempts) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'attempts',
-        value: [attempts],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      attemptsNotEqualTo(int attempts) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'attempts',
-              lower: [],
-              upper: [attempts],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'attempts',
-              lower: [attempts],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'attempts',
-              lower: [attempts],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'attempts',
-              lower: [],
-              upper: [attempts],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      attemptsGreaterThan(
-    int attempts, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'attempts',
-        lower: [attempts],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      attemptsLessThan(
-    int attempts, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'attempts',
-        lower: [],
-        upper: [attempts],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      attemptsBetween(
-    int lowerAttempts,
-    int upperAttempts, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'attempts',
-        lower: [lowerAttempts],
-        includeLower: includeLower,
-        upper: [upperAttempts],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      priorityEqualTo(int priority) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'priority',
-        value: [priority],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      priorityNotEqualTo(int priority) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'priority',
-              lower: [],
-              upper: [priority],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'priority',
-              lower: [priority],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'priority',
-              lower: [priority],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'priority',
-              lower: [],
-              upper: [priority],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      priorityGreaterThan(
-    int priority, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'priority',
-        lower: [priority],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      priorityLessThan(
-    int priority, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'priority',
-        lower: [],
-        upper: [priority],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      priorityBetween(
-    int lowerPriority,
-    int upperPriority, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'priority',
-        lower: [lowerPriority],
-        includeLower: includeLower,
-        upper: [upperPriority],
+        upper: [queueName, upperExpiresAt],
         includeUpper: includeUpper,
       ));
     });
@@ -2013,44 +1430,44 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyEqualToAnyStatusPriority(String retrievalKey) {
+      entryKeyEqualTo(String entryKey) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'retrievalKey_status_priority',
-        value: [retrievalKey],
+        indexName: r'entryKey',
+        value: [entryKey],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyNotEqualToAnyStatusPriority(String retrievalKey) {
+      entryKeyNotEqualTo(String entryKey) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
+              indexName: r'entryKey',
               lower: [],
-              upper: [retrievalKey],
+              upper: [entryKey],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey],
+              indexName: r'entryKey',
+              lower: [entryKey],
               includeLower: false,
               upper: [],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey],
+              indexName: r'entryKey',
+              lower: [entryKey],
               includeLower: false,
               upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
+              indexName: r'entryKey',
               lower: [],
-              upper: [retrievalKey],
+              upper: [entryKey],
               includeUpper: false,
             ));
       }
@@ -2058,46 +1475,44 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusEqualToAnyPriority(
-          String retrievalKey, EntryStatus status) {
+      queueStatusKeyEqualToAnyPriorityCreatedAt(String queueStatusKey) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'retrievalKey_status_priority',
-        value: [retrievalKey, status],
+        indexName: r'queueStatusKey_priority_createdAt',
+        value: [queueStatusKey],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyEqualToStatusNotEqualToAnyPriority(
-          String retrievalKey, EntryStatus status) {
+      queueStatusKeyNotEqualToAnyPriorityCreatedAt(String queueStatusKey) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey],
-              upper: [retrievalKey, status],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [],
+              upper: [queueStatusKey],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey],
               includeLower: false,
-              upper: [retrievalKey],
+              upper: [],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey],
               includeLower: false,
-              upper: [retrievalKey],
+              upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey],
-              upper: [retrievalKey, status],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [],
+              upper: [queueStatusKey],
               includeUpper: false,
             ));
       }
@@ -2105,46 +1520,46 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusPriorityEqualTo(
-          String retrievalKey, EntryStatus status, int priority) {
+      queueStatusKeyPriorityEqualToAnyCreatedAt(
+          String queueStatusKey, int priority) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'retrievalKey_status_priority',
-        value: [retrievalKey, status, priority],
+        indexName: r'queueStatusKey_priority_createdAt',
+        value: [queueStatusKey, priority],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusEqualToPriorityNotEqualTo(
-          String retrievalKey, EntryStatus status, int priority) {
+      queueStatusKeyEqualToPriorityNotEqualToAnyCreatedAt(
+          String queueStatusKey, int priority) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status],
-              upper: [retrievalKey, status, priority],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey],
+              upper: [queueStatusKey, priority],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status, priority],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority],
               includeLower: false,
-              upper: [retrievalKey, status],
+              upper: [queueStatusKey],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status, priority],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority],
               includeLower: false,
-              upper: [retrievalKey, status],
+              upper: [queueStatusKey],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'retrievalKey_status_priority',
-              lower: [retrievalKey, status],
-              upper: [retrievalKey, status, priority],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey],
+              upper: [queueStatusKey, priority],
               includeUpper: false,
             ));
       }
@@ -2152,43 +1567,40 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusEqualToPriorityGreaterThan(
-    String retrievalKey,
-    EntryStatus status,
+      queueStatusKeyEqualToPriorityGreaterThanAnyCreatedAt(
+    String queueStatusKey,
     int priority, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retrievalKey_status_priority',
-        lower: [retrievalKey, status, priority],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey, priority],
         includeLower: include,
-        upper: [retrievalKey, status],
+        upper: [queueStatusKey],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusEqualToPriorityLessThan(
-    String retrievalKey,
-    EntryStatus status,
+      queueStatusKeyEqualToPriorityLessThanAnyCreatedAt(
+    String queueStatusKey,
     int priority, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retrievalKey_status_priority',
-        lower: [retrievalKey, status],
-        upper: [retrievalKey, status, priority],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey],
+        upper: [queueStatusKey, priority],
         includeUpper: include,
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retrievalKeyStatusEqualToPriorityBetween(
-    String retrievalKey,
-    EntryStatus status,
+      queueStatusKeyEqualToPriorityBetweenAnyCreatedAt(
+    String queueStatusKey,
     int lowerPriority,
     int upperPriority, {
     bool includeLower = true,
@@ -2196,76 +1608,56 @@ extension QueueEntryCollectionQueryWhere
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retrievalKey_status_priority',
-        lower: [retrievalKey, status, lowerPriority],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey, lowerPriority],
         includeLower: includeLower,
-        upper: [retrievalKey, status, upperPriority],
+        upper: [queueStatusKey, upperPriority],
         includeUpper: includeUpper,
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampIsNull() {
+      queueStatusKeyPriorityCreatedAtEqualTo(
+          String queueStatusKey, int priority, DateTime createdAt) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'expiration_index',
-        value: [null],
+        indexName: r'queueStatusKey_priority_createdAt',
+        value: [queueStatusKey, priority, createdAt],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiration_index',
-        lower: [null],
-        includeLower: false,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampEqualTo(int? expirationTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'expiration_index',
-        value: [expirationTimestamp],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampNotEqualTo(int? expirationTimestamp) {
+      queueStatusKeyPriorityEqualToCreatedAtNotEqualTo(
+          String queueStatusKey, int priority, DateTime createdAt) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiration_index',
-              lower: [],
-              upper: [expirationTimestamp],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority],
+              upper: [queueStatusKey, priority, createdAt],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiration_index',
-              lower: [expirationTimestamp],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority, createdAt],
               includeLower: false,
-              upper: [],
+              upper: [queueStatusKey, priority],
             ));
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiration_index',
-              lower: [expirationTimestamp],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority, createdAt],
               includeLower: false,
-              upper: [],
+              upper: [queueStatusKey, priority],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'expiration_index',
-              lower: [],
-              upper: [expirationTimestamp],
+              indexName: r'queueStatusKey_priority_createdAt',
+              lower: [queueStatusKey, priority],
+              upper: [queueStatusKey, priority, createdAt],
               includeUpper: false,
             ));
       }
@@ -2273,278 +1665,54 @@ extension QueueEntryCollectionQueryWhere
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampGreaterThan(
-    int? expirationTimestamp, {
+      queueStatusKeyPriorityEqualToCreatedAtGreaterThan(
+    String queueStatusKey,
+    int priority,
+    DateTime createdAt, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiration_index',
-        lower: [expirationTimestamp],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey, priority, createdAt],
         includeLower: include,
-        upper: [],
+        upper: [queueStatusKey, priority],
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampLessThan(
-    int? expirationTimestamp, {
+      queueStatusKeyPriorityEqualToCreatedAtLessThan(
+    String queueStatusKey,
+    int priority,
+    DateTime createdAt, {
     bool include = false,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiration_index',
-        lower: [],
-        upper: [expirationTimestamp],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey, priority],
+        upper: [queueStatusKey, priority, createdAt],
         includeUpper: include,
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      expirationTimestampBetween(
-    int? lowerExpirationTimestamp,
-    int? upperExpirationTimestamp, {
+      queueStatusKeyPriorityEqualToCreatedAtBetween(
+    String queueStatusKey,
+    int priority,
+    DateTime lowerCreatedAt,
+    DateTime upperCreatedAt, {
     bool includeLower = true,
     bool includeUpper = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'expiration_index',
-        lower: [lowerExpirationTimestamp],
+        indexName: r'queueStatusKey_priority_createdAt',
+        lower: [queueStatusKey, priority, lowerCreatedAt],
         includeLower: includeLower,
-        upper: [upperExpirationTimestamp],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'scheduled_index',
-        value: [null],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduled_index',
-        lower: [null],
-        includeLower: false,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampEqualTo(int? scheduledTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'scheduled_index',
-        value: [scheduledTimestamp],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampNotEqualTo(int? scheduledTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduled_index',
-              lower: [],
-              upper: [scheduledTimestamp],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduled_index',
-              lower: [scheduledTimestamp],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduled_index',
-              lower: [scheduledTimestamp],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'scheduled_index',
-              lower: [],
-              upper: [scheduledTimestamp],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampGreaterThan(
-    int? scheduledTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduled_index',
-        lower: [scheduledTimestamp],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampLessThan(
-    int? scheduledTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduled_index',
-        lower: [],
-        upper: [scheduledTimestamp],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      scheduledTimestampBetween(
-    int? lowerScheduledTimestamp,
-    int? upperScheduledTimestamp, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'scheduled_index',
-        lower: [lowerScheduledTimestamp],
-        includeLower: includeLower,
-        upper: [upperScheduledTimestamp],
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'retry_index',
-        value: [null],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retry_index',
-        lower: [null],
-        includeLower: false,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampEqualTo(int? retryTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'retry_index',
-        value: [retryTimestamp],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampNotEqualTo(int? retryTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'retry_index',
-              lower: [],
-              upper: [retryTimestamp],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'retry_index',
-              lower: [retryTimestamp],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'retry_index',
-              lower: [retryTimestamp],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'retry_index',
-              lower: [],
-              upper: [retryTimestamp],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampGreaterThan(
-    int? retryTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retry_index',
-        lower: [retryTimestamp],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampLessThan(
-    int? retryTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retry_index',
-        lower: [],
-        upper: [retryTimestamp],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      retryTimestampBetween(
-    int? lowerRetryTimestamp,
-    int? upperRetryTimestamp, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'retry_index',
-        lower: [lowerRetryTimestamp],
-        includeLower: includeLower,
-        upper: [upperRetryTimestamp],
+        upper: [queueStatusKey, priority, upperCreatedAt],
         includeUpper: includeUpper,
       ));
     });
@@ -2942,6 +2110,144 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyEqualTo(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyGreaterThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        include: include,
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyLessThan(
+    String value, {
+    bool include = false,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.lessThan(
+        include: include,
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyBetween(
+    String lower,
+    String upper, {
+    bool includeLower = true,
+    bool includeUpper = true,
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.between(
+        property: r'entryKey',
+        lower: lower,
+        includeLower: includeLower,
+        upper: upper,
+        includeUpper: includeUpper,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyStartsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.startsWith(
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyEndsWith(
+    String value, {
+    bool caseSensitive = true,
+  }) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.endsWith(
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+          QAfterFilterCondition>
+      entryKeyContains(String value, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.contains(
+        property: r'entryKey',
+        value: value,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+          QAfterFilterCondition>
+      entryKeyMatches(String pattern, {bool caseSensitive = true}) {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.matches(
+        property: r'entryKey',
+        wildcard: pattern,
+        caseSensitive: caseSensitive,
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyIsEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.equalTo(
+        property: r'entryKey',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
+      QAfterFilterCondition> entryKeyIsNotEmpty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addFilterCondition(FilterCondition.greaterThan(
+        property: r'entryKey',
+        value: '',
+      ));
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
       QAfterFilterCondition> errorMessageIsNull() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(const FilterCondition.isNull(
@@ -3093,80 +2399,6 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
       return query.addFilterCondition(FilterCondition.greaterThan(
         property: r'errorMessage',
         value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'expirationTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'expirationTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampEqualTo(int? value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampGreaterThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampLessThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> expirationTimestampBetween(
-    int? lower,
-    int? upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'expirationTimestamp',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
       ));
     });
   }
@@ -3626,13 +2858,13 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyEqualTo(
+      QAfterFilterCondition> queueStatusKeyEqualTo(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3640,7 +2872,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyGreaterThan(
+      QAfterFilterCondition> queueStatusKeyGreaterThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -3648,7 +2880,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
         include: include,
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3656,7 +2888,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyLessThan(
+      QAfterFilterCondition> queueStatusKeyLessThan(
     String value, {
     bool include = false,
     bool caseSensitive = true,
@@ -3664,7 +2896,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.lessThan(
         include: include,
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3672,7 +2904,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyBetween(
+      QAfterFilterCondition> queueStatusKeyBetween(
     String lower,
     String upper, {
     bool includeLower = true,
@@ -3681,7 +2913,7 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         lower: lower,
         includeLower: includeLower,
         upper: upper,
@@ -3692,13 +2924,13 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyStartsWith(
+      QAfterFilterCondition> queueStatusKeyStartsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.startsWith(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3706,13 +2938,13 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyEndsWith(
+      QAfterFilterCondition> queueStatusKeyEndsWith(
     String value, {
     bool caseSensitive = true,
   }) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.endsWith(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3721,10 +2953,10 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
           QAfterFilterCondition>
-      retrievalKeyContains(String value, {bool caseSensitive = true}) {
+      queueStatusKeyContains(String value, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.contains(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: value,
         caseSensitive: caseSensitive,
       ));
@@ -3733,10 +2965,10 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
           QAfterFilterCondition>
-      retrievalKeyMatches(String pattern, {bool caseSensitive = true}) {
+      queueStatusKeyMatches(String pattern, {bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.matches(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         wildcard: pattern,
         caseSensitive: caseSensitive,
       ));
@@ -3744,95 +2976,21 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyIsEmpty() {
+      QAfterFilterCondition> queueStatusKeyIsEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: '',
       ));
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retrievalKeyIsNotEmpty() {
+      QAfterFilterCondition> queueStatusKeyIsNotEmpty() {
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.greaterThan(
-        property: r'retrievalKey',
+        property: r'queueStatusKey',
         value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'retryTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'retryTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampEqualTo(int? value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'retryTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampGreaterThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'retryTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampLessThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'retryTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> retryTimestampBetween(
-    int? lower,
-    int? upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'retryTimestamp',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
       ));
     });
   }
@@ -3903,80 +3061,6 @@ extension QueueEntryCollectionQueryFilter on QueryBuilder<QueueEntryCollection,
     return QueryBuilder.apply(this, (query) {
       return query.addFilterCondition(FilterCondition.between(
         property: r'scheduledFor',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampIsNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNull(
-        property: r'scheduledTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampIsNotNull() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(const FilterCondition.isNotNull(
-        property: r'scheduledTimestamp',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampEqualTo(int? value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'scheduledTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampGreaterThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'scheduledTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampLessThan(
-    int? value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'scheduledTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection,
-      QAfterFilterCondition> scheduledTimestampBetween(
-    int? lower,
-    int? upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'scheduledTimestamp',
         lower: lower,
         includeLower: includeLower,
         upper: upper,
@@ -4189,6 +3273,20 @@ extension QueueEntryCollectionQuerySortBy
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
+      sortByEntryKey() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'entryKey', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
+      sortByEntryKeyDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'entryKey', Sort.desc);
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
       sortByErrorMessage() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'errorMessage', Sort.asc);
@@ -4199,20 +3297,6 @@ extension QueueEntryCollectionQuerySortBy
       sortByErrorMessageDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'errorMessage', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByExpirationTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.desc);
     });
   }
 
@@ -4287,30 +3371,16 @@ extension QueueEntryCollectionQuerySortBy
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByRetrievalKey() {
+      sortByQueueStatusKey() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retrievalKey', Sort.asc);
+      return query.addSortBy(r'queueStatusKey', Sort.asc);
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByRetrievalKeyDesc() {
+      sortByQueueStatusKeyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retrievalKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByRetryTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retryTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByRetryTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retryTimestamp', Sort.desc);
+      return query.addSortBy(r'queueStatusKey', Sort.desc);
     });
   }
 
@@ -4325,20 +3395,6 @@ extension QueueEntryCollectionQuerySortBy
       sortByScheduledForDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'scheduledFor', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByScheduledTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'scheduledTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      sortByScheduledTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'scheduledTimestamp', Sort.desc);
     });
   }
 
@@ -4416,6 +3472,20 @@ extension QueueEntryCollectionQuerySortThenBy
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
+      thenByEntryKey() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'entryKey', Sort.asc);
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
+      thenByEntryKeyDesc() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addSortBy(r'entryKey', Sort.desc);
+    });
+  }
+
+  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
       thenByErrorMessage() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'errorMessage', Sort.asc);
@@ -4426,20 +3496,6 @@ extension QueueEntryCollectionQuerySortThenBy
       thenByErrorMessageDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'errorMessage', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByExpirationTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.desc);
     });
   }
 
@@ -4528,30 +3584,16 @@ extension QueueEntryCollectionQuerySortThenBy
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByRetrievalKey() {
+      thenByQueueStatusKey() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retrievalKey', Sort.asc);
+      return query.addSortBy(r'queueStatusKey', Sort.asc);
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByRetrievalKeyDesc() {
+      thenByQueueStatusKeyDesc() {
     return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retrievalKey', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByRetryTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retryTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByRetryTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'retryTimestamp', Sort.desc);
+      return query.addSortBy(r'queueStatusKey', Sort.desc);
     });
   }
 
@@ -4566,20 +3608,6 @@ extension QueueEntryCollectionQuerySortThenBy
       thenByScheduledForDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'scheduledFor', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByScheduledTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'scheduledTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterSortBy>
-      thenByScheduledTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'scheduledTimestamp', Sort.desc);
     });
   }
 
@@ -4629,16 +3657,16 @@ extension QueueEntryCollectionQueryWhereDistinct
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QDistinct>
-      distinctByErrorMessage({bool caseSensitive = true}) {
+      distinctByEntryKey({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'errorMessage', caseSensitive: caseSensitive);
+      return query.addDistinctBy(r'entryKey', caseSensitive: caseSensitive);
     });
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QDistinct>
-      distinctByExpirationTimestamp() {
+      distinctByErrorMessage({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'expirationTimestamp');
+      return query.addDistinctBy(r'errorMessage', caseSensitive: caseSensitive);
     });
   }
 
@@ -4678,16 +3706,10 @@ extension QueueEntryCollectionQueryWhereDistinct
   }
 
   QueryBuilder<QueueEntryCollection, QueueEntryCollection, QDistinct>
-      distinctByRetrievalKey({bool caseSensitive = true}) {
+      distinctByQueueStatusKey({bool caseSensitive = true}) {
     return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'retrievalKey', caseSensitive: caseSensitive);
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QDistinct>
-      distinctByRetryTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'retryTimestamp');
+      return query.addDistinctBy(r'queueStatusKey',
+          caseSensitive: caseSensitive);
     });
   }
 
@@ -4695,13 +3717,6 @@ extension QueueEntryCollectionQueryWhereDistinct
       distinctByScheduledFor() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'scheduledFor');
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QDistinct>
-      distinctByScheduledTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'scheduledTimestamp');
     });
   }
 
@@ -4747,17 +3762,17 @@ extension QueueEntryCollectionQueryProperty on QueryBuilder<
     });
   }
 
+  QueryBuilder<QueueEntryCollection, String, QQueryOperations>
+      entryKeyProperty() {
+    return QueryBuilder.apply(this, (query) {
+      return query.addPropertyName(r'entryKey');
+    });
+  }
+
   QueryBuilder<QueueEntryCollection, String?, QQueryOperations>
       errorMessageProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'errorMessage');
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, int?, QQueryOperations>
-      expirationTimestampProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'expirationTimestamp');
     });
   }
 
@@ -4796,16 +3811,9 @@ extension QueueEntryCollectionQueryProperty on QueryBuilder<
   }
 
   QueryBuilder<QueueEntryCollection, String, QQueryOperations>
-      retrievalKeyProperty() {
+      queueStatusKeyProperty() {
     return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'retrievalKey');
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, int?, QQueryOperations>
-      retryTimestampProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'retryTimestamp');
+      return query.addPropertyName(r'queueStatusKey');
     });
   }
 
@@ -4813,13 +3821,6 @@ extension QueueEntryCollectionQueryProperty on QueryBuilder<
       scheduledForProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'scheduledFor');
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, int?, QQueryOperations>
-      scheduledTimestampProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'scheduledTimestamp');
     });
   }
 
@@ -4853,28 +3854,23 @@ const QueueLockCollectionSchema = CollectionSchema(
       name: r'entryId',
       type: IsarType.string,
     ),
-    r'expirationTimestamp': PropertySchema(
-      id: 2,
-      name: r'expirationTimestamp',
-      type: IsarType.long,
-    ),
     r'expiresAt': PropertySchema(
-      id: 3,
+      id: 2,
       name: r'expiresAt',
       type: IsarType.dateTime,
     ),
     r'lockId': PropertySchema(
-      id: 4,
+      id: 3,
       name: r'lockId',
       type: IsarType.string,
     ),
     r'lockKey': PropertySchema(
-      id: 5,
+      id: 4,
       name: r'lockKey',
       type: IsarType.string,
     ),
     r'queueName': PropertySchema(
-      id: 6,
+      id: 5,
       name: r'queueName',
       type: IsarType.string,
     )
@@ -4885,32 +3881,6 @@ const QueueLockCollectionSchema = CollectionSchema(
   deserializeProp: _queueLockCollectionDeserializeProp,
   idName: r'id',
   indexes: {
-    r'queueName': IndexSchema(
-      id: -6255641391181223237,
-      name: r'queueName',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'queueName',
-          type: IndexType.hash,
-          caseSensitive: true,
-        )
-      ],
-    ),
-    r'entryId': IndexSchema(
-      id: 3733379884318738402,
-      name: r'entryId',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'entryId',
-          type: IndexType.hash,
-          caseSensitive: true,
-        )
-      ],
-    ),
     r'lockId': IndexSchema(
       id: -1330138948918674398,
       name: r'lockId',
@@ -4937,9 +3907,9 @@ const QueueLockCollectionSchema = CollectionSchema(
         )
       ],
     ),
-    r'lockKey_queueName_entryId': IndexSchema(
-      id: 1303747257513875957,
-      name: r'lockKey_queueName_entryId',
+    r'lockKey': IndexSchema(
+      id: -5574490910201842095,
+      name: r'lockKey',
       unique: true,
       replace: false,
       properties: [
@@ -4947,29 +3917,6 @@ const QueueLockCollectionSchema = CollectionSchema(
           name: r'lockKey',
           type: IndexType.hash,
           caseSensitive: true,
-        ),
-        IndexPropertySchema(
-          name: r'queueName',
-          type: IndexType.hash,
-          caseSensitive: true,
-        ),
-        IndexPropertySchema(
-          name: r'entryId',
-          type: IndexType.hash,
-          caseSensitive: true,
-        )
-      ],
-    ),
-    r'lock_expiration_index': IndexSchema(
-      id: -4050441628147350588,
-      name: r'lock_expiration_index',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'expirationTimestamp',
-          type: IndexType.value,
-          caseSensitive: false,
         )
       ],
     )
@@ -5003,11 +3950,10 @@ void _queueLockCollectionSerialize(
 ) {
   writer.writeDateTime(offsets[0], object.acquiredAt);
   writer.writeString(offsets[1], object.entryId);
-  writer.writeLong(offsets[2], object.expirationTimestamp);
-  writer.writeDateTime(offsets[3], object.expiresAt);
-  writer.writeString(offsets[4], object.lockId);
-  writer.writeString(offsets[5], object.lockKey);
-  writer.writeString(offsets[6], object.queueName);
+  writer.writeDateTime(offsets[2], object.expiresAt);
+  writer.writeString(offsets[3], object.lockId);
+  writer.writeString(offsets[4], object.lockKey);
+  writer.writeString(offsets[5], object.queueName);
 }
 
 QueueLockCollection _queueLockCollectionDeserialize(
@@ -5019,10 +3965,10 @@ QueueLockCollection _queueLockCollectionDeserialize(
   final object = QueueLockCollection();
   object.acquiredAt = reader.readDateTime(offsets[0]);
   object.entryId = reader.readString(offsets[1]);
-  object.expiresAt = reader.readDateTime(offsets[3]);
+  object.expiresAt = reader.readDateTime(offsets[2]);
   object.id = id;
-  object.lockId = reader.readString(offsets[4]);
-  object.queueName = reader.readString(offsets[6]);
+  object.lockId = reader.readString(offsets[3]);
+  object.queueName = reader.readString(offsets[5]);
   return object;
 }
 
@@ -5038,14 +3984,12 @@ P _queueLockCollectionDeserializeProp<P>(
     case 1:
       return (reader.readString(offset)) as P;
     case 2:
-      return (reader.readLong(offset)) as P;
-    case 3:
       return (reader.readDateTime(offset)) as P;
+    case 3:
+      return (reader.readString(offset)) as P;
     case 4:
       return (reader.readString(offset)) as P;
     case 5:
-      return (reader.readString(offset)) as P;
-    case 6:
       return (reader.readString(offset)) as P;
     default:
       throw IsarError('Unknown property with id $propertyId');
@@ -5120,106 +4064,58 @@ extension QueueLockCollectionByIndex on IsarCollection<QueueLockCollection> {
     return putAllByIndexSync(r'lockId', objects, saveLinks: saveLinks);
   }
 
-  Future<QueueLockCollection?> getByLockKeyQueueNameEntryId(
-      String lockKey, String queueName, String entryId) {
-    return getByIndex(
-        r'lockKey_queueName_entryId', [lockKey, queueName, entryId]);
+  Future<QueueLockCollection?> getByLockKey(String lockKey) {
+    return getByIndex(r'lockKey', [lockKey]);
   }
 
-  QueueLockCollection? getByLockKeyQueueNameEntryIdSync(
-      String lockKey, String queueName, String entryId) {
-    return getByIndexSync(
-        r'lockKey_queueName_entryId', [lockKey, queueName, entryId]);
+  QueueLockCollection? getByLockKeySync(String lockKey) {
+    return getByIndexSync(r'lockKey', [lockKey]);
   }
 
-  Future<bool> deleteByLockKeyQueueNameEntryId(
-      String lockKey, String queueName, String entryId) {
-    return deleteByIndex(
-        r'lockKey_queueName_entryId', [lockKey, queueName, entryId]);
+  Future<bool> deleteByLockKey(String lockKey) {
+    return deleteByIndex(r'lockKey', [lockKey]);
   }
 
-  bool deleteByLockKeyQueueNameEntryIdSync(
-      String lockKey, String queueName, String entryId) {
-    return deleteByIndexSync(
-        r'lockKey_queueName_entryId', [lockKey, queueName, entryId]);
+  bool deleteByLockKeySync(String lockKey) {
+    return deleteByIndexSync(r'lockKey', [lockKey]);
   }
 
-  Future<List<QueueLockCollection?>> getAllByLockKeyQueueNameEntryId(
-      List<String> lockKeyValues,
-      List<String> queueNameValues,
-      List<String> entryIdValues) {
-    final len = lockKeyValues.length;
-    assert(queueNameValues.length == len && entryIdValues.length == len,
-        'All index values must have the same length');
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([lockKeyValues[i], queueNameValues[i], entryIdValues[i]]);
-    }
-
-    return getAllByIndex(r'lockKey_queueName_entryId', values);
+  Future<List<QueueLockCollection?>> getAllByLockKey(
+      List<String> lockKeyValues) {
+    final values = lockKeyValues.map((e) => [e]).toList();
+    return getAllByIndex(r'lockKey', values);
   }
 
-  List<QueueLockCollection?> getAllByLockKeyQueueNameEntryIdSync(
-      List<String> lockKeyValues,
-      List<String> queueNameValues,
-      List<String> entryIdValues) {
-    final len = lockKeyValues.length;
-    assert(queueNameValues.length == len && entryIdValues.length == len,
-        'All index values must have the same length');
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([lockKeyValues[i], queueNameValues[i], entryIdValues[i]]);
-    }
-
-    return getAllByIndexSync(r'lockKey_queueName_entryId', values);
+  List<QueueLockCollection?> getAllByLockKeySync(List<String> lockKeyValues) {
+    final values = lockKeyValues.map((e) => [e]).toList();
+    return getAllByIndexSync(r'lockKey', values);
   }
 
-  Future<int> deleteAllByLockKeyQueueNameEntryId(List<String> lockKeyValues,
-      List<String> queueNameValues, List<String> entryIdValues) {
-    final len = lockKeyValues.length;
-    assert(queueNameValues.length == len && entryIdValues.length == len,
-        'All index values must have the same length');
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([lockKeyValues[i], queueNameValues[i], entryIdValues[i]]);
-    }
-
-    return deleteAllByIndex(r'lockKey_queueName_entryId', values);
+  Future<int> deleteAllByLockKey(List<String> lockKeyValues) {
+    final values = lockKeyValues.map((e) => [e]).toList();
+    return deleteAllByIndex(r'lockKey', values);
   }
 
-  int deleteAllByLockKeyQueueNameEntryIdSync(List<String> lockKeyValues,
-      List<String> queueNameValues, List<String> entryIdValues) {
-    final len = lockKeyValues.length;
-    assert(queueNameValues.length == len && entryIdValues.length == len,
-        'All index values must have the same length');
-    final values = <List<dynamic>>[];
-    for (var i = 0; i < len; i++) {
-      values.add([lockKeyValues[i], queueNameValues[i], entryIdValues[i]]);
-    }
-
-    return deleteAllByIndexSync(r'lockKey_queueName_entryId', values);
+  int deleteAllByLockKeySync(List<String> lockKeyValues) {
+    final values = lockKeyValues.map((e) => [e]).toList();
+    return deleteAllByIndexSync(r'lockKey', values);
   }
 
-  Future<Id> putByLockKeyQueueNameEntryId(QueueLockCollection object) {
-    return putByIndex(r'lockKey_queueName_entryId', object);
+  Future<Id> putByLockKey(QueueLockCollection object) {
+    return putByIndex(r'lockKey', object);
   }
 
-  Id putByLockKeyQueueNameEntryIdSync(QueueLockCollection object,
+  Id putByLockKeySync(QueueLockCollection object, {bool saveLinks = true}) {
+    return putByIndexSync(r'lockKey', object, saveLinks: saveLinks);
+  }
+
+  Future<List<Id>> putAllByLockKey(List<QueueLockCollection> objects) {
+    return putAllByIndex(r'lockKey', objects);
+  }
+
+  List<Id> putAllByLockKeySync(List<QueueLockCollection> objects,
       {bool saveLinks = true}) {
-    return putByIndexSync(r'lockKey_queueName_entryId', object,
-        saveLinks: saveLinks);
-  }
-
-  Future<List<Id>> putAllByLockKeyQueueNameEntryId(
-      List<QueueLockCollection> objects) {
-    return putAllByIndex(r'lockKey_queueName_entryId', objects);
-  }
-
-  List<Id> putAllByLockKeyQueueNameEntryIdSync(
-      List<QueueLockCollection> objects,
-      {bool saveLinks = true}) {
-    return putAllByIndexSync(r'lockKey_queueName_entryId', objects,
-        saveLinks: saveLinks);
+    return putAllByIndexSync(r'lockKey', objects, saveLinks: saveLinks);
   }
 }
 
@@ -5236,15 +4132,6 @@ extension QueueLockCollectionQueryWhereSort
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(
         const IndexWhereClause.any(indexName: r'expiresAt'),
-      );
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhere>
-      anyExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(
-        const IndexWhereClause.any(indexName: r'lock_expiration_index'),
       );
     });
   }
@@ -5317,96 +4204,6 @@ extension QueueLockCollectionQueryWhere
         upper: upperId,
         includeUpper: includeUpper,
       ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      queueNameEqualTo(String queueName) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'queueName',
-        value: [queueName],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      queueNameNotEqualTo(String queueName) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
-              lower: [],
-              upper: [queueName],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
-              lower: [queueName],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
-              lower: [queueName],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'queueName',
-              lower: [],
-              upper: [queueName],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      entryIdEqualTo(String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'entryId',
-        value: [entryId],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      entryIdNotEqualTo(String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [],
-              upper: [entryId],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [entryId],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [entryId],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [],
-              upper: [entryId],
-              includeUpper: false,
-            ));
-      }
     });
   }
 
@@ -5549,28 +4346,28 @@ extension QueueLockCollectionQueryWhere
   }
 
   QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyEqualToAnyQueueNameEntryId(String lockKey) {
+      lockKeyEqualTo(String lockKey) {
     return QueryBuilder.apply(this, (query) {
       return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'lockKey_queueName_entryId',
+        indexName: r'lockKey',
         value: [lockKey],
       ));
     });
   }
 
   QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyNotEqualToAnyQueueNameEntryId(String lockKey) {
+      lockKeyNotEqualTo(String lockKey) {
     return QueryBuilder.apply(this, (query) {
       if (query.whereSort == Sort.asc) {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
+              indexName: r'lockKey',
               lower: [],
               upper: [lockKey],
               includeUpper: false,
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
+              indexName: r'lockKey',
               lower: [lockKey],
               includeLower: false,
               upper: [],
@@ -5578,204 +4375,18 @@ extension QueueLockCollectionQueryWhere
       } else {
         return query
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
+              indexName: r'lockKey',
               lower: [lockKey],
               includeLower: false,
               upper: [],
             ))
             .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
+              indexName: r'lockKey',
               lower: [],
               upper: [lockKey],
               includeUpper: false,
             ));
       }
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyQueueNameEqualToAnyEntryId(String lockKey, String queueName) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'lockKey_queueName_entryId',
-        value: [lockKey, queueName],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyEqualToQueueNameNotEqualToAnyEntryId(
-          String lockKey, String queueName) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey],
-              upper: [lockKey, queueName],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName],
-              includeLower: false,
-              upper: [lockKey],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName],
-              includeLower: false,
-              upper: [lockKey],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey],
-              upper: [lockKey, queueName],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyQueueNameEntryIdEqualTo(
-          String lockKey, String queueName, String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'lockKey_queueName_entryId',
-        value: [lockKey, queueName, entryId],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      lockKeyQueueNameEqualToEntryIdNotEqualTo(
-          String lockKey, String queueName, String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName],
-              upper: [lockKey, queueName, entryId],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName, entryId],
-              includeLower: false,
-              upper: [lockKey, queueName],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName, entryId],
-              includeLower: false,
-              upper: [lockKey, queueName],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lockKey_queueName_entryId',
-              lower: [lockKey, queueName],
-              upper: [lockKey, queueName, entryId],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      expirationTimestampEqualTo(int expirationTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'lock_expiration_index',
-        value: [expirationTimestamp],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      expirationTimestampNotEqualTo(int expirationTimestamp) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lock_expiration_index',
-              lower: [],
-              upper: [expirationTimestamp],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lock_expiration_index',
-              lower: [expirationTimestamp],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lock_expiration_index',
-              lower: [expirationTimestamp],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'lock_expiration_index',
-              lower: [],
-              upper: [expirationTimestamp],
-              includeUpper: false,
-            ));
-      }
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      expirationTimestampGreaterThan(
-    int expirationTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'lock_expiration_index',
-        lower: [expirationTimestamp],
-        includeLower: include,
-        upper: [],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      expirationTimestampLessThan(
-    int expirationTimestamp, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'lock_expiration_index',
-        lower: [],
-        upper: [expirationTimestamp],
-        includeUpper: include,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterWhereClause>
-      expirationTimestampBetween(
-    int lowerExpirationTimestamp,
-    int upperExpirationTimestamp, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.between(
-        indexName: r'lock_expiration_index',
-        lower: [lowerExpirationTimestamp],
-        includeLower: includeLower,
-        upper: [upperExpirationTimestamp],
-        includeUpper: includeUpper,
-      ));
     });
   }
 }
@@ -5970,62 +4581,6 @@ extension QueueLockCollectionQueryFilter on QueryBuilder<QueueLockCollection,
       return query.addFilterCondition(FilterCondition.greaterThan(
         property: r'entryId',
         value: '',
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterFilterCondition>
-      expirationTimestampEqualTo(int value) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.equalTo(
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterFilterCondition>
-      expirationTimestampGreaterThan(
-    int value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.greaterThan(
-        include: include,
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterFilterCondition>
-      expirationTimestampLessThan(
-    int value, {
-    bool include = false,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.lessThan(
-        include: include,
-        property: r'expirationTimestamp',
-        value: value,
-      ));
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterFilterCondition>
-      expirationTimestampBetween(
-    int lower,
-    int upper, {
-    bool includeLower = true,
-    bool includeUpper = true,
-  }) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addFilterCondition(FilterCondition.between(
-        property: r'expirationTimestamp',
-        lower: lower,
-        includeLower: includeLower,
-        upper: upper,
-        includeUpper: includeUpper,
       ));
     });
   }
@@ -6588,20 +5143,6 @@ extension QueueLockCollectionQuerySortBy
   }
 
   QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterSortBy>
-      sortByExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterSortBy>
-      sortByExpirationTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterSortBy>
       sortByExpiresAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'expiresAt', Sort.asc);
@@ -6685,20 +5226,6 @@ extension QueueLockCollectionQuerySortThenBy
       thenByEntryIdDesc() {
     return QueryBuilder.apply(this, (query) {
       return query.addSortBy(r'entryId', Sort.desc);
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterSortBy>
-      thenByExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.asc);
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QAfterSortBy>
-      thenByExpirationTimestampDesc() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addSortBy(r'expirationTimestamp', Sort.desc);
     });
   }
 
@@ -6790,13 +5317,6 @@ extension QueueLockCollectionQueryWhereDistinct
   }
 
   QueryBuilder<QueueLockCollection, QueueLockCollection, QDistinct>
-      distinctByExpirationTimestamp() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addDistinctBy(r'expirationTimestamp');
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, QueueLockCollection, QDistinct>
       distinctByExpiresAt() {
     return QueryBuilder.apply(this, (query) {
       return query.addDistinctBy(r'expiresAt');
@@ -6844,13 +5364,6 @@ extension QueueLockCollectionQueryProperty
       entryIdProperty() {
     return QueryBuilder.apply(this, (query) {
       return query.addPropertyName(r'entryId');
-    });
-  }
-
-  QueryBuilder<QueueLockCollection, int, QQueryOperations>
-      expirationTimestampProperty() {
-    return QueryBuilder.apply(this, (query) {
-      return query.addPropertyName(r'expirationTimestamp');
     });
   }
 

@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:sqlite3/sqlite3.dart';
 
+import '../errors.dart';
 import '../queue_entry.dart';
 import '../concurrent.dart';
+import '../concurrent/serial_lock.dart';
+import 'maintenance.dart';
 import 'storage_interface.dart';
 
 /// SQLite-based implementation of StorageInterface
@@ -14,7 +18,16 @@ class SQLiteStorage implements StorageInterface {
   
   /// Queue lock manager
   late final QueueLock _lock;
-  
+
+  /// Serializes operations so that only one logical caller is inside a
+  /// transaction at a time. Without it, concurrent callers interleave at their
+  /// `await` points and nest inside each other's transactions by accident.
+  final SerialLock _serial = SerialLock();
+
+  /// Held for the lifetime of a manually managed transaction, and completed
+  /// when that transaction commits or rolls back.
+  Completer<void>? _manualTransactionRelease;
+
   /// Tracks the current transaction depth
   int _transactionDepth = 0;
   
@@ -24,7 +37,41 @@ class SQLiteStorage implements StorageInterface {
   /// Default lock duration for queue entries
   static const defaultLockDuration = Duration(minutes: 5);
 
-  SQLiteStorage({required this.dbPath}) {
+  /// Default number of times an entry may be delivered before it is treated as
+  /// poisonous and moved to the dead letter queue.
+  static const defaultMaxDeliveryAttempts = 5;
+
+  /// How long a retrieved entry stays claimed before another consumer may take
+  /// it. A consumer that dies without acknowledging its entry holds it for at
+  /// most this long.
+  final Duration leaseDuration;
+
+  /// How many times an entry may be handed out before a lease that expires
+  /// again sends it to the dead letter queue instead of back to pending. This
+  /// is what stops a job that crashes its worker from cycling forever.
+  final int maxDeliveryAttempts;
+
+  /// Default time spent waiting for another process to release the write lock.
+  static const defaultBusyTimeout = Duration(seconds: 5);
+
+  /// How long to keep trying to start a write when another process or isolate
+  /// holds the database's write lock.
+  ///
+  /// Only relevant when more than one process opens the same file. The wait is
+  /// spent in short sleeps between attempts rather than one long block, so the
+  /// isolate stays responsive while a contended write is waiting its turn.
+  final Duration busyTimeout;
+
+  /// The slice of [busyTimeout] SQLite itself is allowed to block on, per
+  /// attempt. Kept short because the driver blocks the isolate while it waits.
+  static const _busySlice = Duration(milliseconds: 50);
+
+  SQLiteStorage({
+    required this.dbPath,
+    this.leaseDuration = defaultLockDuration,
+    this.maxDeliveryAttempts = defaultMaxDeliveryAttempts,
+    this.busyTimeout = defaultBusyTimeout,
+  }) {
     _initDatabase();
   }
 
@@ -41,14 +88,56 @@ class SQLiteStorage implements StorageInterface {
       mode: OpenMode.readWriteCreate,
     );
 
+    // Setting up the schema means writing, and another process may be doing
+    // the same thing at the same moment. Wait out the whole budget here: this
+    // runs once, and the constructor cannot wait asynchronously.
+    _db.execute('PRAGMA busy_timeout = ${busyTimeout.inMilliseconds}');
+
     // Enable foreign keys and WAL mode for better concurrency
     _db.execute('PRAGMA foreign_keys = ON');
-    _db.execute('PRAGMA journal_mode = WAL');
-    
+    _enableWalMode();
+
     // Initialize lock manager
     _lock = QueueLock(_db);
-    
+
     _createTables();
+
+    // From here on the waiting is done between attempts instead, so a
+    // contended write never blocks the isolate for more than a slice.
+    _db.execute('PRAGMA busy_timeout = ${_busySlice.inMilliseconds}');
+  }
+
+  /// Whether [e] means another connection is holding a lock we need.
+  static bool _isContention(SqliteException e) =>
+      e.resultCode == 5 || e.resultCode == 6; // SQLITE_BUSY, SQLITE_LOCKED
+
+  /// The journal mode the database file is currently in.
+  String _journalMode() =>
+      (_db.select('PRAGMA journal_mode').first.values.first as String)
+          .toLowerCase();
+
+  /// Switches the file to write-ahead logging, which is what lets readers and
+  /// a writer work at the same time.
+  ///
+  /// Unlike an ordinary write, this needs an exclusive lock and does not go
+  /// through the busy handler, so two processes opening the same new file at
+  /// the same moment can collide. The mode is a property of the file and
+  /// persists, so whoever wins the race has done the work for everyone; this
+  /// retries briefly and then accepts the mode the file is in rather than
+  /// failing to construct.
+  void _enableWalMode() {
+    if (_journalMode() == 'wal') return;
+
+    for (var attempt = 0; attempt < 5; attempt++) {
+      try {
+        _db.execute('PRAGMA journal_mode = WAL');
+        return;
+      } on SqliteException catch (e) {
+        if (!_isContention(e)) rethrow;
+        if (_journalMode() == 'wal') return; // another process got there first
+        sleep(const Duration(milliseconds: 20));
+      }
+    }
   }
 
   void _createTables() {
@@ -82,10 +171,20 @@ class SQLiteStorage implements StorageInterface {
       ON queue_entries(queue_name, status, priority, created_at)
     ''');
 
-    // Add index for TTL cleanup
+    // Add index for TTL cleanup across every queue
     _db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_expiration
       ON queue_entries(expires_at)
+      WHERE expires_at IS NOT NULL
+    ''');
+
+    // Add index for the per-queue expiry sweep on the retrieval path. Without
+    // the leading queue_name the planner prefers the retrieval index and the
+    // sweep degrades into a scan of every pending entry in the queue. Partial,
+    // so entries without a TTL cost nothing to maintain.
+    _db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_queue_entries_queue_expiration
+      ON queue_entries(queue_name, expires_at)
       WHERE expires_at IS NOT NULL
     ''');
 
@@ -102,6 +201,26 @@ class SQLiteStorage implements StorageInterface {
       ON queue_entries(scheduled_for)
       WHERE scheduled_for IS NOT NULL
     ''');
+  }
+
+  /// Whether the caller is already inside this storage's critical section,
+  /// either through [transaction] or through a manually managed transaction.
+  bool get _inTransactionContext =>
+      _serial.isHeldByCurrentContext || _manualTransactionRelease != null;
+
+  /// Runs [action] with exclusive access to the database, unless the caller is
+  /// already inside the critical section, in which case it runs immediately.
+  Future<T> _exclusive<T>(Future<T> Function() action) {
+    if (_inTransactionContext) return action();
+    return _serial.run(action);
+  }
+
+  /// Completes a manually managed transaction once its outermost level closes.
+  void _releaseManualTransaction() {
+    if (_transactionDepth == 0) {
+      _manualTransactionRelease?.complete();
+      _manualTransactionRelease = null;
+    }
   }
 
   void _checkDisposed() {
@@ -134,15 +253,76 @@ class SQLiteStorage implements StorageInterface {
     );
   }
 
+  /// Opens a transaction or savepoint. The caller must already hold the
+  /// critical section.
+  ///
+  /// A savepoint needs no waiting: the write lock is already held. Starting an
+  /// outermost transaction takes the write lock up front, which is where
+  /// another process can be in the way, so that one is retried until
+  /// [busyTimeout] runs out. Nothing has executed at that point, so retrying
+  /// repeats no work.
+  Future<void> _beginInternal() async {
+    if (_transactionDepth > 0) {
+      _db.execute('SAVEPOINT transaction_$_transactionDepth');
+      _transactionDepth++;
+      return;
+    }
+
+    final deadline = DateTime.now().add(busyTimeout);
+    var backoff = const Duration(milliseconds: 2);
+
+    while (true) {
+      try {
+        _db.execute('BEGIN IMMEDIATE TRANSACTION');
+        _transactionDepth++;
+        return;
+      } on SqliteException catch (e) {
+        if (!_isContention(e)) rethrow;
+        if (!DateTime.now().isBefore(deadline)) {
+          throw StorageBusyException(busyTimeout, cause: e);
+        }
+        await Future<void>.delayed(backoff);
+        final next = backoff * 2;
+        backoff = next > const Duration(milliseconds: 50)
+            ? const Duration(milliseconds: 50)
+            : next;
+      }
+    }
+  }
+
+  /// Starts a manually managed transaction.
+  ///
+  /// The transaction holds exclusive access to the storage until
+  /// [commitTransaction] or [rollbackTransaction] closes it, so other callers
+  /// queue behind it. Prefer [transaction], which releases the storage even if
+  /// the body throws; a manual transaction that is never closed blocks every
+  /// later operation.
   @override
   Future<void> beginTransaction() async {
     _checkDisposed();
-    if (_transactionDepth == 0) {
-      _db.execute('BEGIN IMMEDIATE TRANSACTION');
-    } else {
-      _db.execute('SAVEPOINT transaction_$_transactionDepth');
+
+    if (_inTransactionContext) {
+      await _beginInternal();
+      return;
     }
-    _transactionDepth++;
+
+    final acquired = Completer<void>();
+    final release = Completer<void>();
+    unawaited(_serial.run(() async {
+      acquired.complete();
+      await release.future;
+    }));
+    await acquired.future;
+    _manualTransactionRelease = release;
+
+    try {
+      await _beginInternal();
+    } catch (_) {
+      // Nothing was opened, so do not hold the storage hostage.
+      _manualTransactionRelease = null;
+      release.complete();
+      rethrow;
+    }
   }
 
   @override
@@ -158,6 +338,7 @@ class SQLiteStorage implements StorageInterface {
     } else {
       _db.execute('RELEASE SAVEPOINT transaction_$_transactionDepth');
     }
+    _releaseManualTransaction();
   }
 
   @override
@@ -173,43 +354,58 @@ class SQLiteStorage implements StorageInterface {
     } else {
       _db.execute('ROLLBACK TO SAVEPOINT transaction_$_transactionDepth');
     }
+    _releaseManualTransaction();
   }
 
   @override
-  Future<T> transaction<T>(Future<T> Function() operations) async {
+  Future<T> transaction<T>(Future<T> Function() operations) {
     _checkDisposed();
-    await beginTransaction();
-    try {
-      final result = await operations();
-      await commitTransaction();
-      return result;
-    } catch (e) {
-      if (_transactionDepth > 0) {
-        await rollbackTransaction();
+    return _exclusive(() async {
+      final depthAtEntry = _transactionDepth;
+      await beginTransaction();
+      try {
+        final result = await operations();
+        await commitTransaction();
+        return result;
+      } catch (e) {
+        // Only unwind the levels this call opened; an outer transaction keeps
+        // whatever it committed before this one started.
+        if (_transactionDepth > depthAtEntry) {
+          await rollbackTransaction();
+        }
+        rethrow;
       }
-      rethrow;
-    }
+    });
   }
 
   @override
-  Future<void> store(String queueName, QueueEntry entry) async {
+  Future<void> store(
+    String queueName,
+    QueueEntry entry, {
+    StoreConflict onConflict = StoreConflict.fail,
+  }) {
     _checkDisposed();
-    
-    // If we're already in a transaction, just execute the statements
-    if (_transactionDepth > 0) {
-      _storeInternal(queueName, entry);
-      return;
-    }
+    return _exclusive(() async {
+      // If we're already in a transaction, just execute the statements
+      if (_transactionDepth > 0) {
+        _storeInternal(queueName, entry, onConflict);
+        return;
+      }
 
-    // Otherwise, wrap in a transaction
-    await transaction(() async {
-      _storeInternal(queueName, entry);
-      return null;
+      // Otherwise, wrap in a transaction
+      await transaction(() async {
+        _storeInternal(queueName, entry, onConflict);
+        return null;
+      });
     });
   }
 
   /// Internal method to store an entry without transaction handling
-  void _storeInternal(String queueName, QueueEntry entry) {
+  void _storeInternal(
+    String queueName,
+    QueueEntry entry,
+    StoreConflict onConflict,
+  ) {
     // Ensure queue exists
     _db.execute(
       'INSERT OR IGNORE INTO queues (name) VALUES (?)',
@@ -220,130 +416,287 @@ class SQLiteStorage implements StorageInterface {
     final status = entry.isExpired ? EntryStatus.expired : entry.status;
 
     // Store entry
-    _db.execute(
-      '''
+    try {
+      _db.execute(
+        '''
       INSERT INTO queue_entries (
         id, queue_name, data, created_at, updated_at, expires_at,
-        scheduled_for, attempts, priority, status, error_message
+        scheduled_for, next_retry_at, attempts, priority, status, error_message
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ${_conflictClause(onConflict)}
       ''',
-      [
-        entry.id,
-        queueName,
-        jsonEncode(entry.data),
-        entry.createdAt.millisecondsSinceEpoch,
-        entry.lastUpdatedAt.millisecondsSinceEpoch,
-        entry.expiresAt?.millisecondsSinceEpoch,
-        entry.scheduledFor?.millisecondsSinceEpoch,
-        entry.attempts,
-        entry.priority,
-        status.name,
-        entry.errorMessage,
-      ],
-    );
+        [
+          entry.id,
+          queueName,
+          jsonEncode(entry.data),
+          entry.createdAt.millisecondsSinceEpoch,
+          entry.lastUpdatedAt.millisecondsSinceEpoch,
+          entry.expiresAt?.millisecondsSinceEpoch,
+          entry.scheduledFor?.millisecondsSinceEpoch,
+          entry.nextRetryAt?.millisecondsSinceEpoch,
+          entry.attempts,
+          entry.priority,
+          status.name,
+          entry.errorMessage,
+        ],
+      );
+    } on SqliteException catch (e) {
+      // 1555 is a primary key collision, 2067 a unique index collision. Both
+      // mean the id is taken; anything else is a real storage failure and the
+      // driver error, which carries the statement and its parameters, must not
+      // escape as one.
+      if (e.extendedResultCode == 1555 || e.extendedResultCode == 2067) {
+        throw DuplicateEntryException(queueName, entry.id, cause: e);
+      }
+      rethrow;
+    }
+  }
+
+  /// The conflict handling appended to the insert for [onConflict].
+  static String _conflictClause(StoreConflict onConflict) {
+    switch (onConflict) {
+      case StoreConflict.fail:
+        return '';
+      case StoreConflict.ignore:
+        return 'ON CONFLICT(id) DO NOTHING';
+      case StoreConflict.replace:
+        return '''
+      ON CONFLICT(id) DO UPDATE SET
+        queue_name = excluded.queue_name,
+        data = excluded.data,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at,
+        expires_at = excluded.expires_at,
+        scheduled_for = excluded.scheduled_for,
+        next_retry_at = excluded.next_retry_at,
+        attempts = excluded.attempts,
+        priority = excluded.priority,
+        status = excluded.status,
+        error_message = excluded.error_message
+      ''';
+    }
   }
 
   @override
-  Future<QueueEntry?> retrieve(String queueName) async {
+  Future<QueueEntry?> retrieve(String queueName) {
     _checkDisposed();
-    
-    // If we're already in a transaction, just execute the statements
-    if (_transactionDepth > 0) {
-      return _retrieveInternal(queueName);
-    }
+    return _exclusive(() async {
+      // If we're already in a transaction, just execute the statements
+      if (_transactionDepth > 0) {
+        return _retrieveInternal(queueName);
+      }
 
-    // Otherwise, wrap in a transaction
-    return transaction(() async {
-      return _retrieveInternal(queueName);
+      // Otherwise, wrap in a transaction
+      return transaction(() async {
+        return _retrieveInternal(queueName);
+      });
     });
+  }
+
+  /// Marks pending entries whose deadline has passed as expired, for one queue
+  /// or, when [queueName] is null, for every queue.
+  ///
+  /// Returns the number of entries marked.
+  int _markExpiredInternal(String? queueName, int now) {
+    if (queueName != null) {
+      _db.execute(
+        '''
+        UPDATE queue_entries
+        SET status = ?, updated_at = ?
+        WHERE queue_name = ?
+        AND status = ?
+        AND expires_at IS NOT NULL
+        AND expires_at <= ?
+        ''',
+        [EntryStatus.expired.name, now, queueName, EntryStatus.pending.name, now],
+      );
+    } else {
+      _db.execute(
+        '''
+        UPDATE queue_entries
+        SET status = ?, updated_at = ?
+        WHERE status = ?
+        AND expires_at IS NOT NULL
+        AND expires_at <= ?
+        ''',
+        [EntryStatus.expired.name, now, EntryStatus.pending.name, now],
+      );
+    }
+    return _db.updatedRows;
+  }
+
+  /// Returns entries whose lease has expired without being acknowledged.
+  ///
+  /// An entry is considered stranded when it is still `processing` but no live
+  /// lock covers it, which is what happens when a consumer crashes, is killed,
+  /// or takes an entry with `dequeue` and never acknowledges it. Entries that
+  /// have been delivered [maxDeliveryAttempts] times go to the dead letter
+  /// queue instead of back to the queue.
+  ///
+  /// Returns the number of entries returned to pending.
+  int _reclaimStaleInternal(String? queueName, int now) {
+    final queueFilter = queueName != null ? 'AND queue_name = ?' : '';
+    final queueArgs = queueName != null ? [queueName] : const <Object?>[];
+
+    // A lock that is still live means the entry is in flight somewhere, even if
+    // that somewhere is another process.
+    const heldElsewhere = '''
+      AND NOT EXISTS (
+        SELECT 1 FROM queue_locks l
+        WHERE l.queue_name = queue_entries.queue_name
+        AND l.entry_id = queue_entries.id
+        AND l.expires_at > ?
+      )
+    ''';
+
+    // Entries that have used up their deliveries are poisonous: park them.
+    _db.execute(
+      '''
+      UPDATE queue_entries
+      SET status = ?, attempts = attempts + 1, updated_at = ?, error_message = ?
+      WHERE status = ?
+      AND attempts + 1 >= ?
+      $queueFilter
+      $heldElsewhere
+      ''',
+      [
+        EntryStatus.deadLetter.name,
+        now,
+        'Lease expired without acknowledgement after $maxDeliveryAttempts '
+            'deliveries',
+        EntryStatus.processing.name,
+        maxDeliveryAttempts,
+        ...queueArgs,
+        now,
+      ],
+    );
+
+    // Everything else goes back on the queue, available immediately.
+    _db.execute(
+      '''
+      UPDATE queue_entries
+      SET status = ?, attempts = attempts + 1, updated_at = ?, next_retry_at = NULL
+      WHERE status = ?
+      $queueFilter
+      $heldElsewhere
+      ''',
+      [
+        EntryStatus.pending.name,
+        now,
+        EntryStatus.processing.name,
+        ...queueArgs,
+        now,
+      ],
+    );
+
+    return _db.updatedRows;
+  }
+
+  /// Returns entries whose lease expired without being acknowledged to the
+  /// queue, so a crashed or killed consumer does not strand them.
+  ///
+  /// Retrieval does this for its own queue on every call. Call this directly at
+  /// startup to recover entries left behind by a previous run, optionally for a
+  /// single queue.
+  ///
+  /// Returns the number of entries returned to pending. Entries that have been
+  /// delivered [maxDeliveryAttempts] times are moved to the dead letter queue
+  /// instead and are not counted.
+  Future<int> reclaimStaleEntries({String? queueName}) {
+    _checkDisposed();
+    return _exclusive(() => transaction(() async {
+          return _reclaimStaleInternal(
+            queueName,
+            DateTime.now().millisecondsSinceEpoch,
+          );
+        }));
   }
 
   /// Internal method to retrieve an entry without transaction handling
   Future<QueueEntry?> _retrieveInternal(String queueName) async {
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    // First, mark expired entries
-    _db.execute(
-      '''
-      UPDATE queue_entries
-      SET status = ?, updated_at = ?
-      WHERE queue_name = ?
-      AND status = ?
-      AND expires_at IS NOT NULL
-      AND expires_at <= ?
-      ''',
-      [
-        EntryStatus.expired.name,
-        now,
-        queueName,
-        EntryStatus.pending.name,
-        now,
-      ],
-    );
+    // Take back anything a dead consumer left claimed before looking for work.
+    _reclaimStaleInternal(queueName, now);
 
-    // Iterate through candidates until we acquire a lock on one
+    // First, mark expired entries
+    _markExpiredInternal(queueName, now);
+
+    // Walk candidates in batches until we acquire a lock on one. Fetching one
+    // row at a time with a growing OFFSET re-reads the head of the queue on
+    // every attempt, which is quadratic when the first candidates are locked
+    // by another consumer.
+    const batchSize = 16;
     var offset = 0;
     while (true) {
-      final result = _db.select(
+      final candidates = _db.select(
         '''
         SELECT * FROM queue_entries
         WHERE queue_name = ?
         AND status = ?
         AND (expires_at IS NULL OR expires_at > ?)
         AND (scheduled_for IS NULL OR scheduled_for <= ?)
+        AND (next_retry_at IS NULL OR next_retry_at <= ?)
         ORDER BY priority ASC, created_at ASC
-        LIMIT 1 OFFSET ?
+        LIMIT ? OFFSET ?
         ''',
         [
           queueName,
           EntryStatus.pending.name,
           now,
           now,
+          now,
+          batchSize,
           offset,
         ],
       );
 
-      if (result.isEmpty) {
+      if (candidates.isEmpty) {
         return null;
       }
 
-      final row = result.first;
-      final entryId = row['id'] as String;
+      for (final row in candidates) {
+        final entryId = row['id'] as String;
 
-      // Try to acquire a lock on the entry
-      final lockId = await _lock.tryAcquire(
-        queueName,
-        entryId,
-        lockDuration: defaultLockDuration,
-      );
+        // Try to acquire a lock on the entry
+        final lockId = await _lock.tryAcquire(
+          queueName,
+          entryId,
+          lockDuration: leaseDuration,
+        );
 
-      // If we couldn't acquire the lock, try the next entry
-      if (lockId == null) {
-        offset++;
-        continue;
+        // If we couldn't acquire the lock, try the next entry
+        if (lockId == null) continue;
+
+        // Update the entry status to processing
+        _db.execute(
+          '''
+          UPDATE queue_entries
+          SET status = ?, updated_at = ?
+          WHERE id = ?
+          ''',
+          [
+            EntryStatus.processing.name,
+            now,
+            entryId,
+          ],
+        );
+
+        return _rowToEntry(row, statusOverride: EntryStatus.processing);
       }
 
-      // Update the entry status to processing
-      _db.execute(
-        '''
-        UPDATE queue_entries
-        SET status = ?, updated_at = ?
-        WHERE id = ?
-        ''',
-        [
-          EntryStatus.processing.name,
-          now,
-          entryId,
-        ],
-      );
-
-      return _rowToEntry(row, statusOverride: EntryStatus.processing);
+      // Every candidate in this batch is locked elsewhere. If the batch came
+      // back short there is nothing further to look at.
+      if (candidates.length < batchSize) return null;
+      offset += candidates.length;
     }
   }
 
   /// Removes expired entries from the queue
-  Future<int> cleanupExpiredEntries() async {
+  Future<int> cleanupExpiredEntries() => _exclusive(_cleanupExpiredEntries);
+
+  Future<int> _cleanupExpiredEntries() async {
     final now = DateTime.now().millisecondsSinceEpoch;
     
     // First count how many entries will be deleted
@@ -395,7 +748,9 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<int> count(String queueName) async {
+  Future<int> count(String queueName) => _exclusive(() => _count(queueName));
+
+  Future<int> _count(String queueName) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final result = _db.select(
       '''
@@ -411,13 +766,18 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<List<String>> listQueues() async {
+  Future<List<String>> listQueues() => _exclusive(_listQueues);
+
+  Future<List<String>> _listQueues() async {
     final result = _db.select('SELECT name FROM queues');
     return result.map((row) => row['name'] as String).toList();
   }
 
   @override
-  Future<void> removeQueue(String queueName) async {
+  Future<void> removeQueue(String queueName) =>
+      _exclusive(() => _removeQueue(queueName));
+
+  Future<void> _removeQueue(String queueName) async {
     await transaction(() async {
       _db.execute(
         'DELETE FROM queue_entries WHERE queue_name = ?',
@@ -432,7 +792,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<void> removeEntry(String queueName, String entryId) async {
+  Future<void> removeEntry(String queueName, String entryId) =>
+      _exclusive(() => _removeEntry(queueName, entryId));
+
+  Future<void> _removeEntry(String queueName, String entryId) async {
     _db.execute(
       'DELETE FROM queue_entries WHERE queue_name = ? AND id = ?',
       [queueName, entryId],
@@ -442,6 +805,23 @@ class SQLiteStorage implements StorageInterface {
   /// Updates the status of a queue entry
   @override
   Future<void> updateEntryStatus(
+    String queueName,
+    String entryId,
+    EntryStatus status, {
+    String? errorMessage,
+    DateTime? nextRetryAt,
+    int? attempts,
+  }) =>
+      _exclusive(() => _updateEntryStatus(
+            queueName,
+            entryId,
+            status,
+            errorMessage: errorMessage,
+            nextRetryAt: nextRetryAt,
+            attempts: attempts,
+          ));
+
+  Future<void> _updateEntryStatus(
     String queueName,
     String entryId,
     EntryStatus status, {
@@ -496,6 +876,12 @@ class SQLiteStorage implements StorageInterface {
   Future<List<QueueEntry>> getEntriesByStatus(
     String queueName,
     EntryStatus status,
+  ) =>
+      _exclusive(() => _getEntriesByStatus(queueName, status));
+
+  Future<List<QueueEntry>> _getEntriesByStatus(
+    String queueName,
+    EntryStatus status,
   ) async {
     final result = _db.select(
       '''
@@ -512,6 +898,11 @@ class SQLiteStorage implements StorageInterface {
   /// Disposes of the storage
   void dispose() {
     if (!_isDisposed) {
+      // Let anything queued behind a manual transaction proceed and fail fast
+      // on the disposed check rather than waiting forever.
+      _manualTransactionRelease?.complete();
+      _manualTransactionRelease = null;
+
       if (_transactionDepth > 0) {
         try {
           _db.execute('ROLLBACK');
@@ -521,16 +912,26 @@ class SQLiteStorage implements StorageInterface {
         _transactionDepth = 0;
       }
       
-      // Release all locks before disposing
-      _lock.releaseAllLocks();
-      
-      _db.dispose();
+      // Release the locks this instance holds before disposing. A contended
+      // database must not turn a shutdown into an exception, and the release
+      // reports failure through its future rather than by throwing, so the
+      // error has to be handled there. Anything left behind expires on its own.
+      unawaited(_lock.releaseAllLocks().catchError((Object _) => 0));
+
+      try {
+        _db.dispose();
+      } catch (_) {
+        // Nothing useful is left to do with a connection we are discarding.
+      }
       _isDisposed = true;
     }
   }
 
   @override
-  Future<QueueEntry<T>?> retrieveDeadLetter<T>(String queueName) async {
+  Future<QueueEntry<T>?> retrieveDeadLetter<T>(String queueName) =>
+      _exclusive(() => _retrieveDeadLetter<T>(queueName));
+
+  Future<QueueEntry<T>?> _retrieveDeadLetter<T>(String queueName) async {
     _checkDisposed();
     final result = _db.select(
       '''
@@ -548,6 +949,14 @@ class SQLiteStorage implements StorageInterface {
 
   @override
   Future<List<QueueEntry<T>>> listDeadLetters<T>(
+    String queueName, {
+    int? limit,
+    int? offset,
+  }) =>
+      _exclusive(() =>
+          _listDeadLetters<T>(queueName, limit: limit, offset: offset));
+
+  Future<List<QueueEntry<T>>> _listDeadLetters<T>(
     String queueName, {
     int? limit,
     int? offset,
@@ -572,7 +981,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<void> retryDeadLetter(String queueName, String entryId) async {
+  Future<void> retryDeadLetter(String queueName, String entryId) =>
+      _exclusive(() => _retryDeadLetter(queueName, entryId));
+
+  Future<void> _retryDeadLetter(String queueName, String entryId) async {
     _checkDisposed();
     await transaction(() async {
       final result = _db.select(
@@ -603,7 +1015,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<void> removeDeadLetter(String queueName, String entryId) async {
+  Future<void> removeDeadLetter(String queueName, String entryId) =>
+      _exclusive(() => _removeDeadLetter(queueName, entryId));
+
+  Future<void> _removeDeadLetter(String queueName, String entryId) async {
     _checkDisposed();
     _db.execute(
       '''
@@ -615,7 +1030,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<int> purgeDeadLetters(String queueName, DateTime cutoff) async {
+  Future<int> purgeDeadLetters(String queueName, DateTime cutoff) =>
+      _exclusive(() => _purgeDeadLetters(queueName, cutoff));
+
+  Future<int> _purgeDeadLetters(String queueName, DateTime cutoff) async {
     _checkDisposed();
     final timestamp = cutoff.millisecondsSinceEpoch;
     
@@ -643,7 +1061,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<int> countDeadLetters(String queueName) async {
+  Future<int> countDeadLetters(String queueName) =>
+      _exclusive(() => _countDeadLetters(queueName));
+
+  Future<int> _countDeadLetters(String queueName) async {
     _checkDisposed();
     final result = _db.select(
       '''
@@ -657,7 +1078,10 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<List<QueueEntry>> retrieveAll(String queueName) async {
+  Future<List<QueueEntry>> retrieveAll(String queueName) =>
+      _exclusive(() => _retrieveAll(queueName));
+
+  Future<List<QueueEntry>> _retrieveAll(String queueName) async {
     _checkDisposed();
     
     final result = _db.select(
@@ -673,7 +1097,52 @@ class SQLiteStorage implements StorageInterface {
   }
 
   @override
-  Future<void> ping() async {
+  Future<MaintenanceReport> runMaintenance({
+    RetentionPolicy policy = const RetentionPolicy(),
+    String? queueName,
+  }) {
+    _checkDisposed();
+    return _exclusive(() => transaction(() async {
+          final now = DateTime.now().millisecondsSinceEpoch;
+
+          final reclaimed = _reclaimStaleInternal(queueName, now);
+          final expired = _markExpiredInternal(queueName, now);
+
+          var removed = 0;
+          for (final rule in policy.removable) {
+            final cutoff = now - rule.value.inMilliseconds;
+            if (queueName != null) {
+              _db.execute(
+                '''
+                DELETE FROM queue_entries
+                WHERE queue_name = ? AND status = ? AND updated_at < ?
+                ''',
+                [queueName, rule.key.name, cutoff],
+              );
+            } else {
+              _db.execute(
+                '''
+                DELETE FROM queue_entries
+                WHERE status = ? AND updated_at < ?
+                ''',
+                [rule.key.name, cutoff],
+              );
+            }
+            removed += _db.updatedRows;
+          }
+
+          return MaintenanceReport(
+            reclaimed: reclaimed,
+            expired: expired,
+            removed: removed,
+          );
+        }));
+  }
+
+  @override
+  Future<void> ping() => _exclusive(_ping);
+
+  Future<void> _ping() async {
     _checkDisposed();
     try {
       _db.execute('SELECT 1');

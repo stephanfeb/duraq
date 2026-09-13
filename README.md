@@ -69,6 +69,10 @@ void main() async {
 - **Dead Letter Queue**: Automatic handling of permanently failed entries
 - **Health Checks**: Monitor storage, metrics, and queue health
 - **Concurrent Processing**: Entry-level locking for safe multi-consumer access
+- **Crash Recovery**: Entries claimed by a consumer that dies are handed back to
+  the queue once their lease expires
+- **Retention**: One maintenance call reclaims, expires, and prunes finished
+  entries so the database does not grow forever
 - **Extensible**: Custom storage backend support via `StorageInterface`
 
 ## Storage Backends
@@ -118,7 +122,23 @@ Features:
 - **Shared Isar instance support** - allows multiple components to use the same database
 - **External lifecycle management** - caller controls when to open/close the database
 
-> **Note**: Isar's transaction support in DuraQ is compatibility-tracked (depth counter) rather than true nested transactions. Individual Isar write operations are atomic via `writeTxn`, but the `beginTransaction`/`commitTransaction` API does not provide the same ACID guarantees as SQLite's savepoint-based transactions.
+> **Transactions**: `transaction()` runs its body in a single Isar write
+> transaction, so operations inside it commit together or not at all. The manual
+> `beginTransaction`/`commitTransaction`/`rollbackTransaction` calls throw
+> `UnsupportedError` on this backend: an Isar write transaction takes its work as
+> a callback and cannot be opened in one call and closed in another.
+
+> **Upgrading an existing Isar database**: versions before 1.0.2 could store more
+> than one row for the same entry, which let the same job be processed twice.
+> Run the one-off cleanup once after upgrading:
+>
+> ```dart
+> final removed = await storage.removeDuplicateEntries();
+> ```
+>
+> New stores cannot create duplicates. The schema also changed to add the indexes
+> the queries need and drop the ones nothing used; existing databases migrate
+> when they are opened.
 
 ### Upcoming Storage Options
 - File system storage
@@ -247,8 +267,16 @@ DuraQ provides robust transaction support (ACID guarantees with SQLite):
 
 1. **Atomicity**: All operations in a transaction either succeed or fail together
 2. **Consistency**: The database remains in a valid state before and after the transaction
-3. **Isolation**: Concurrent transactions don't interfere with each other
+3. **Isolation**: Concurrent calls to `transaction()` run one at a time, so they cannot
+   commit or roll back each other's work
 4. **Durability**: Once committed, changes persist even after system failures
+
+> **Manual transactions are single-caller.** `beginTransaction()` takes exclusive
+> access to the storage and holds it until `commitTransaction()` or
+> `rollbackTransaction()` closes it, so it must always be closed. While one is
+> open, other operations on that storage instance join it rather than queueing,
+> which means the manual API gives no isolation between concurrent callers.
+> Prefer `transaction()`, which closes itself even when the body throws.
 
 #### Transaction Methods
 
@@ -306,6 +334,106 @@ await storage.transaction(() async {
 
   return null;
 });
+```
+
+### Crash Recovery
+
+Retrieving an entry claims it for `leaseDuration` (five minutes by default). If
+the consumer completes or fails the entry, the claim is released immediately. If
+the consumer dies without doing either, the claim expires and the entry is
+handed back to the queue on the next retrieval, with its attempt count
+incremented.
+
+```dart
+final storage = SQLiteStorage(
+  dbPath: 'queue.db',
+  leaseDuration: Duration(minutes: 2),  // how long a consumer may hold an entry
+  maxDeliveryAttempts: 5,               // deliveries before the entry is parked
+);
+
+// At startup, take back anything the previous run left claimed.
+final recovered = await storage.reclaimStaleEntries();
+print('recovered $recovered entries from the last run');
+```
+
+Set `leaseDuration` longer than your slowest job, or a second consumer may pick
+up an entry that is still being processed. An entry whose lease expires
+`maxDeliveryAttempts` times is moved to the dead letter queue instead of being
+delivered again, so a job that crashes its consumer cannot cycle forever.
+
+### Multiple Processes
+
+One SQLite file can be used by several processes or isolates at once. Each one
+opens its own `SQLiteStorage`; a `Database` handle cannot be shared across
+isolates. Entry leases do the rest: a claimed entry is not offered to anyone
+else until its lease expires, whichever process is holding it.
+
+```dart
+final storage = SQLiteStorage(
+  dbPath: 'queue.db',
+  busyTimeout: Duration(seconds: 5),  // how long to wait for the write lock
+);
+```
+
+Only one process can write at a time. When another one is mid-write, a write
+waits and retries until `busyTimeout` runs out, then throws
+`StorageBusyException`. Nothing was written when that happens, so retrying the
+call is safe. The waiting is done in short slices, so timers and other work in
+your isolate keep running while a write waits its turn.
+
+For Isar, pass the same `Isar` instance to each component in the process; Isar
+handles access from several isolates itself.
+
+### Maintenance and Retention
+
+Nothing is deleted on its own. A queue that runs for months otherwise keeps every
+job it has ever processed, so run one maintenance pass on a schedule that suits
+your volume, or at startup:
+
+```dart
+final report = await storage.runMaintenance();
+print('reclaimed ${report.reclaimed}, expired ${report.expired}, '
+      'removed ${report.removed}');
+```
+
+A pass does three things: it returns entries whose consumer died to the queue, it
+marks entries that outlived their deadline as expired, and it deletes finished
+entries older than the retention policy allows. Unfinished work is never deleted.
+
+```dart
+await storage.runMaintenance(
+  policy: RetentionPolicy(
+    completed: Duration(days: 7),
+    failed: Duration(days: 7),
+    deadLetter: Duration(days: 30),  // these still need a person to look at
+    expired: Duration(days: 1),
+  ),
+  queueName: 'emails',  // optional, defaults to every queue
+);
+```
+
+Pass `RetentionPolicy.keepEverything()` to reclaim and expire without deleting
+anything.
+
+### Storing an Entry Twice
+
+Entry ids are unique across the storage, not per queue. `enqueue` generates one,
+so it cannot collide; `enqueueEntry` takes an entry you built yourself, which
+can. By default a collision throws `DuplicateEntryException`:
+
+```dart
+try {
+  await queue.enqueueEntry(entry);
+} on DuplicateEntryException catch (e) {
+  print('${e.entryId} is already queued');
+}
+
+// A producer retrying a call it got no answer for wants the enqueue to be
+// idempotent instead:
+await queue.enqueueEntry(entry, onConflict: StoreConflict.ignore);
+
+// Restating an entry the caller owns:
+await queue.enqueueEntry(entry, onConflict: StoreConflict.replace);
 ```
 
 ### Retry Policies
