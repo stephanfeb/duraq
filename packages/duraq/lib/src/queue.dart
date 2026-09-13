@@ -72,7 +72,8 @@ class Queue<T> {
   /// Adds a pre-built QueueEntry to the queue.
   /// Useful for advanced scenarios like scheduling.
   ///
-  /// The entry carries its own id, so it can collide with one already stored.
+  /// The entry carries its own id, so it can collide with one this queue
+  /// already holds — an id another queue uses is not a collision.
   /// By default that throws a [DuplicateEntryException]; pass [onConflict] to
   /// overwrite the stored entry or to keep it, which is how a producer makes a
   /// repeated enqueue idempotent.

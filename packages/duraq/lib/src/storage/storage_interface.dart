@@ -1,7 +1,7 @@
 import '../queue_entry.dart';
 import 'maintenance.dart';
 
-/// What `store` should do when the storage already holds an entry with the
+/// What `store` should do when the queue already holds an entry with the
 /// same id.
 enum StoreConflict {
   /// Throw a `DuplicateEntryException`. The default: a repeated id is usually
@@ -33,9 +33,11 @@ abstract class StorageInterface {
 
   /// Stores a queue entry.
   ///
-  /// Entry ids are unique across the whole storage, not per queue. If an entry
-  /// with the same id is already stored, [onConflict] decides what happens; by
-  /// default a `DuplicateEntryException` is thrown.
+  /// An entry id identifies an entry within its queue. Two queues may each
+  /// hold an entry called `order-42`; they are different entries and neither
+  /// affects the other. If [queueName] already holds an entry with this id,
+  /// [onConflict] decides what happens; by default a `DuplicateEntryException`
+  /// is thrown.
   Future<void> store(
     String queueName,
     QueueEntry<dynamic> entry, {

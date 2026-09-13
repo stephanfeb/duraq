@@ -502,9 +502,11 @@ anything.
 
 ### Storing an Entry Twice
 
-Entry ids are unique across the storage, not per queue. `enqueue` generates one,
-so it cannot collide; `enqueueEntry` takes an entry you built yourself, which
-can. By default a collision throws `DuplicateEntryException`:
+An entry id identifies an entry within its queue. Two queues may each hold an
+entry called `order-42`; they are different entries, and nothing done to one
+touches the other. `enqueue` generates an id, so it cannot collide;
+`enqueueEntry` takes an entry you built yourself, which can. By default a
+collision throws `DuplicateEntryException`:
 
 ```dart
 try {

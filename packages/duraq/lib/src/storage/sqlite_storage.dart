@@ -199,12 +199,9 @@ class SQLiteStorage implements StorageInterface {
   /// Version 1 is the shape DuraQ has always had; it was simply never recorded
   /// until now. Raise this when the tables change, and add the step that gets a
   /// database there to the migrations below.
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// How this database is created and kept up to date.
-  ///
-  /// `migrations` is empty while there is only one version. It exists so the
-  /// next schema change has somewhere to go.
   static final SqliteSchema _schema = SqliteSchema(
     targetVersion: schemaVersion,
     createCurrent: _createTablesIn,
@@ -214,8 +211,60 @@ class SQLiteStorage implements StorageInterface {
           ['queue_entries'],
         )
         .isNotEmpty,
-    migrations: const {},
+    migrations: {
+      2: _entryIdsBecomePerQueue,
+    },
   );
+
+  /// Version 2: the entry id is unique within its queue, not across the file.
+  ///
+  /// Version 1 made `id` the primary key on its own, so storing `order-42` in
+  /// one queue stopped any other queue from holding that id — two unrelated
+  /// producers collided over a name neither had shared. Queues are namespaces,
+  /// and this makes the key say so.
+  ///
+  /// SQLite cannot alter a primary key in place, so the table is rebuilt. Every
+  /// row is carried over: no data in a version 1 database can violate the new
+  /// key, because the old one was strictly stricter.
+  static void _entryIdsBecomePerQueue(Database db) {
+    db.execute('''
+      CREATE TABLE queue_entries_v2 (
+        id TEXT NOT NULL,
+        queue_name TEXT NOT NULL,
+        data TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        expires_at INTEGER,
+        scheduled_for INTEGER,
+        next_retry_at INTEGER,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        priority INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        error_message TEXT,
+        PRIMARY KEY (queue_name, id),
+        FOREIGN KEY (queue_name) REFERENCES queues(name)
+      )
+    ''');
+
+    // Columns are named rather than `SELECT *`, so a future version that adds
+    // one does not silently shift every value one place to the left.
+    db.execute('''
+      INSERT INTO queue_entries_v2 (
+        id, queue_name, data, created_at, updated_at, expires_at,
+        scheduled_for, next_retry_at, attempts, priority, status, error_message
+      )
+      SELECT
+        id, queue_name, data, created_at, updated_at, expires_at,
+        scheduled_for, next_retry_at, attempts, priority, status, error_message
+      FROM queue_entries
+    ''');
+
+    // Dropping the old table drops its indexes with it; they are recreated
+    // under the same names against the new one.
+    db.execute('DROP TABLE queue_entries');
+    db.execute('ALTER TABLE queue_entries_v2 RENAME TO queue_entries');
+    _createEntryIndexesIn(db);
+  }
 
   /// The synchronous setting this connection is running at.
   ///
@@ -246,7 +295,7 @@ class SQLiteStorage implements StorageInterface {
 
     db.execute('''
       CREATE TABLE IF NOT EXISTS queue_entries (
-        id TEXT PRIMARY KEY,
+        id TEXT NOT NULL,
         queue_name TEXT NOT NULL,
         data TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -258,10 +307,17 @@ class SQLiteStorage implements StorageInterface {
         priority INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'pending',
         error_message TEXT,
+        PRIMARY KEY (queue_name, id),
         FOREIGN KEY (queue_name) REFERENCES queues(name)
       )
     ''');
 
+    _createEntryIndexesIn(db);
+  }
+
+  /// The indexes on `queue_entries`, created separately so the version 2
+  /// migration can put them back after rebuilding the table.
+  static void _createEntryIndexesIn(Database db) {
     // Add index for efficient priority-based retrieval
     db.execute('''
       CREATE INDEX IF NOT EXISTS idx_queue_entries_retrieval 
@@ -576,11 +632,10 @@ class SQLiteStorage implements StorageInterface {
       case StoreConflict.fail:
         return '';
       case StoreConflict.ignore:
-        return 'ON CONFLICT(id) DO NOTHING';
+        return 'ON CONFLICT(queue_name, id) DO NOTHING';
       case StoreConflict.replace:
         return '''
-      ON CONFLICT(id) DO UPDATE SET
-        queue_name = excluded.queue_name,
+      ON CONFLICT(queue_name, id) DO UPDATE SET
         data = excluded.data,
         created_at = excluded.created_at,
         updated_at = excluded.updated_at,
@@ -791,11 +846,12 @@ class SQLiteStorage implements StorageInterface {
           '''
           UPDATE queue_entries
           SET status = ?, updated_at = ?
-          WHERE id = ?
+          WHERE queue_name = ? AND id = ?
           ''',
           [
             EntryStatus.processing.name,
             now,
+            queueName,
             entryId,
           ],
         );

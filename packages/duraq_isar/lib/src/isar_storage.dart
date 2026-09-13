@@ -97,15 +97,25 @@ class IsarStorage implements StorageInterface {
   /// Isar migrates its own structure, so this exists for changes of *meaning* —
   /// a key format, a convention, a cleanup that has to run once — which Isar
   /// cannot know about.
-  static const int schemaVersion = 1;
+  static const int schemaVersion = 2;
 
   /// How a database at version `key - 1` becomes one at version `key`.
+  static final Map<int, Future<void> Function(Isar isar)> _migrations = {
+    2: _entryIdsBecomePerQueue,
+  };
+
+  /// Version 2: the entry id is unique within its queue, not across the file.
   ///
-  /// Empty while there is only one version. It exists so the next change of
-  /// meaning has somewhere to go: `removeDuplicateEntries` had to ship as a
-  /// cleanup the caller runs by hand precisely because there was no version to
-  /// hang it on.
-  static final Map<int, Future<void> Function(Isar isar)> _migrations = {};
+  /// There is nothing to rewrite. Version 1 refused to store an id that another
+  /// queue already held, so no version 1 database can contain anything the new
+  /// rule disallows — the old rule was strictly stricter.
+  ///
+  /// The version still has to be recorded, because the change runs the other
+  /// way: a version 2 database may hold `order-42` in two queues, and a release
+  /// that still believed ids were global would treat the second one as a
+  /// duplicate of the first and, under [StoreConflict.replace], delete it. The
+  /// version is what makes that release refuse to open the database instead.
+  static Future<void> _entryIdsBecomePerQueue(Isar isar) async {}
 
   /// The schema check, run once per instance and awaited by every operation.
   Future<void>? _schemaChecked;
@@ -309,21 +319,15 @@ class IsarStorage implements StorageInterface {
       // If entry is already expired, store it as expired
       final status = entry.isExpired ? EntryStatus.expired : entry.status;
 
-      // One row per entry. Entry ids are unique across the storage, so an id
-      // already used by another queue counts as taken too.
+      // One row per entry, where an entry is a queue and an id together. The
+      // same id in another queue is a different entry and does not collide:
+      // queues are namespaces.
       final existing = await _isar.queueEntryCollections
           .where()
           .entryKeyEqualTo(entryKeyFor(queueName, entry.id))
           .findAll();
-      final elsewhere = existing.isNotEmpty
-          ? const <QueueEntryCollection>[]
-          : await _isar.queueEntryCollections
-              .where()
-              .entryIdEqualTo(entry.id)
-              .findAll();
 
-      final taken = existing.isNotEmpty || elsewhere.isNotEmpty;
-      if (taken) {
+      if (existing.isNotEmpty) {
         switch (onConflict) {
           case StoreConflict.fail:
             throw DuplicateEntryException(queueName, entry.id);
@@ -335,8 +339,8 @@ class IsarStorage implements StorageInterface {
       }
 
       // Drop any extra rows an earlier version of this package left behind for
-      // the same entry, including one filed under another queue.
-      final duplicates = [...existing.skip(1), ...elsewhere];
+      // the same entry.
+      final duplicates = existing.skip(1).toList();
       if (duplicates.isNotEmpty) {
         await _isar.queueEntryCollections
             .deleteAll(duplicates.map((e) => e.id).toList());

@@ -77,19 +77,62 @@ void main() {
         expect(stored.single.data, equals('second'));
       });
 
-      test('an entry id already used by another queue is a conflict', () async {
-        // Entry ids are unique across the storage, matching SQLite, where the
-        // entry id is the table's primary key.
+      test('an entry id used by another queue gets a row of its own', () async {
+        // Entry ids are per queue, matching SQLite, where (queue_name, id) is
+        // the table's primary key. The behaviour is asserted in the shared
+        // contract suite; what this checks is the storage underneath it, since
+        // an upsert that matched too widely would keep one row and still look
+        // right from the outside.
         await storage.store('queue-a', entry('shared-id'));
+        await storage.store('queue-b', entry('shared-id'));
 
-        await expectLater(
-          storage.store('queue-b', entry('shared-id')),
-          throwsA(isA<DuplicateEntryException>()),
-        );
-
-        expect(await isar.queueEntryCollections.count(), equals(1));
+        expect(await isar.queueEntryCollections.count(), equals(2));
         expect(await storage.count('queue-a'), equals(1));
-        expect(await storage.count('queue-b'), equals(0));
+        expect(await storage.count('queue-b'), equals(1));
+      });
+
+      test('no ordinary sequence of operations leaves a duplicate row',
+          () async {
+        // The invariant a unique index on entryKey would enforce in the
+        // storage engine. It is asserted here instead, because that index
+        // cannot be added: Isar applies indexes at `Isar.open`, before any
+        // migration can run, and the caller owns that call — see the Isar
+        // entry index decision in docs/audit/.
+        //
+        // So this test is the guarantee. It exercises every path that writes
+        // an entry row and then checks that identity held throughout.
+        final queue = Queue<String>('work', storage);
+
+        for (var round = 0; round < 3; round++) {
+          for (var i = 0; i < 5; i++) {
+            final id = 'job-$i';
+            await storage.store('work', entry(id, data: 'round $round'),
+                onConflict: StoreConflict.replace);
+            await storage.updateEntryStatus('work', id, EntryStatus.processing);
+            await storage.updateEntryStatus('work', id, EntryStatus.pending,
+                nextRetryAt: DateTime.now());
+            await storage.store('work', entry(id, data: 'again $round'),
+                onConflict: StoreConflict.replace);
+          }
+          await queue.processNext((_) {});
+        }
+
+        // A second queue holding entries whose ids differ, since ids are unique
+        // across the storage — a row per queue must still be a row per entry.
+        for (var i = 0; i < 3; i++) {
+          await storage.store('other', entry('other-$i'));
+        }
+
+        await storage.removeEntry('work', 'job-0');
+        await storage.store('work', entry('job-0'));
+
+        final all = await isar.queueEntryCollections.where().findAll();
+        final keys = all.map((e) => entryKeyFor(e.queueName, e.entryId));
+        expect(keys.toSet(), hasLength(all.length),
+            reason: 'two rows share one queue-and-entry identity');
+
+        // And nothing the workload did was silently dropped either.
+        expect(await storage.count('other'), equals(3));
       });
 
       test('duplicates written by an earlier version can be collapsed',

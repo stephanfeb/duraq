@@ -863,19 +863,6 @@ const QueueEntryCollectionSchema = CollectionSchema(
   deserializeProp: _queueEntryCollectionDeserializeProp,
   idName: r'id',
   indexes: {
-    r'entryId': IndexSchema(
-      id: 3733379884318738402,
-      name: r'entryId',
-      unique: false,
-      replace: false,
-      properties: [
-        IndexPropertySchema(
-          name: r'entryId',
-          type: IndexType.hash,
-          caseSensitive: true,
-        )
-      ],
-    ),
     r'queueName_expiresAt': IndexSchema(
       id: -7668964105198360985,
       name: r'queueName_expiresAt',
@@ -1170,51 +1157,6 @@ extension QueueEntryCollectionQueryWhere
         upper: upperId,
         includeUpper: includeUpper,
       ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      entryIdEqualTo(String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      return query.addWhereClause(IndexWhereClause.equalTo(
-        indexName: r'entryId',
-        value: [entryId],
-      ));
-    });
-  }
-
-  QueryBuilder<QueueEntryCollection, QueueEntryCollection, QAfterWhereClause>
-      entryIdNotEqualTo(String entryId) {
-    return QueryBuilder.apply(this, (query) {
-      if (query.whereSort == Sort.asc) {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [],
-              upper: [entryId],
-              includeUpper: false,
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [entryId],
-              includeLower: false,
-              upper: [],
-            ));
-      } else {
-        return query
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [entryId],
-              includeLower: false,
-              upper: [],
-            ))
-            .addWhereClause(IndexWhereClause.between(
-              indexName: r'entryId',
-              lower: [],
-              upper: [entryId],
-              includeUpper: false,
-            ));
-      }
     });
   }
 

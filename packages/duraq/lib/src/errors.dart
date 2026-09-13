@@ -58,7 +58,7 @@ class DuplicateEntryException extends DuraQException {
 
   DuplicateEntryException(this.queueName, this.entryId, {Object? cause})
       : super(
-          'An entry with id "$entryId" is already stored. Pass '
+          'Queue "$queueName" already holds an entry with id "$entryId". Pass '
           'StoreConflict.replace to overwrite it or StoreConflict.ignore to '
           'keep the existing entry.',
           cause: cause,

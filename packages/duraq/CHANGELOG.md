@@ -5,6 +5,43 @@ All notable changes to DuraQ will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking
+- **An entry id is now unique within its queue, not across the whole
+  database.** Storing `order-42` in one queue no longer stops another queue
+  from holding an entry with that id: they are different entries, and neither
+  affects the other. Retrieval, replacement, removal and status changes all act
+  on the entry in the queue named, as they already did — the public API does
+  not change shape, because every method that takes an entry id already took a
+  queue name beside it.
+
+  Queues are namespaces. Two independent producers writing `order-42` into
+  queues of their own is reasonable, and until now the second one failed with a
+  `DuplicateEntryException` for a reason that had nothing to do with either of
+  them. Storing the same id twice in *one* queue is still a conflict, and
+  `StoreConflict.replace` and `.ignore` still do what they did.
+
+  You are affected if you relied on global uniqueness — using
+  `DuplicateEntryException` to find out whether an id was in use *anywhere*, or
+  treating an id as addressing an entry without saying which queue it is in.
+
+- The SQLite schema is at version 2. A version 1 database is migrated in place
+  the first time this release opens it: the `queue_entries` table is rebuilt
+  with `PRIMARY KEY (queue_name, id)` and its indexes are recreated, in one
+  transaction that rolls back whole if anything in it fails. No row can be lost
+  to the change, because the old key was strictly stricter than the new one.
+
+  Once migrated, the database can no longer be opened by duraq 2.x, which would
+  read it as if ids were still global. That is deliberate: a
+  `SchemaVersionException` naming both versions is better than an older release
+  quietly deleting a second queue's entry under `StoreConflict.replace`. Back
+  the file up before upgrading if you may need to roll back.
+
+### Changed
+- `DuplicateEntryException`'s message now names the queue, matching what it has
+  always meant: `Queue "orders" already holds an entry with id "order-42"`.
+
 ## [2.0.0] - 2026-09-14
 
 A durability release. Six defects that could lose or duplicate a job are fixed,
