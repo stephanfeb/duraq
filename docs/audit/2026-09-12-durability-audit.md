@@ -110,12 +110,10 @@ retrieval path (H4); the Isar backend rewrite (C5, C6, H5); the interface work
 
 ### Decisions worth not relitigating
 
-- **Isar entry identity is enforced in code, not by a unique index.** A unique
-  index makes an existing database holding duplicates fail to open, which was
-  verified against a database written by the current release. Revisit with M13.
-- **Entry ids are unique across the storage, not per queue.** SQLite makes the
-  id the table's primary key; changing that needs a table rebuild, so Isar was
-  brought in line. Per-queue identity is the better model, also M13.
+- **Isar entry identity is enforced in code, not by a unique index.** See
+  "Open decisions" below — this one is less unblocked than it looks.
+- **Entry ids are unique across the storage, not per queue.** See "Open
+  decisions" below.
 - **The manual transaction API is single-caller on SQLite and unsupported on
   Isar.** Neither backend can identify the owner of a transaction that spans two
   calls. A handle-based API would fix both and changes `StorageInterface`.
@@ -123,6 +121,101 @@ retrieval path (H4); the Isar backend rewrite (C5, C6, H5); the interface work
   timers in someone else's process is worse than one that asks to be called.
 - **`cleanupExpiredEntries()` now overlaps `runMaintenance()`.** Left in place
   rather than deprecated; worth resolving when the interface is next touched.
+
+### Open decisions
+
+Two things were deferred during the remediation because they change what an
+existing database *means*, and there was no way to carry a field database across
+such a change. M13 built that way. Neither has been revisited; both are written
+up here so the next person does not have to reconstruct them.
+
+Nothing below is a defect. Both are working as designed, and the designs were
+chosen under a constraint that has partly lifted.
+
+---
+
+#### A. Should the Isar entry index be unique?
+
+**Where** `packages/duraq_isar/lib/src/isar_models.dart`, the `entryKey` getter
+on `QueueEntryCollection`. Also `IsarStorage.store` (the upsert that enforces
+identity in code) and `removeDuplicateEntries()`.
+
+**Today** the index is `@Index()`, not `@Index(unique: true)`. Identity is
+enforced in `store`, which looks the entry up by key and overwrites it.
+
+**Why** a unique index was backed out during C5: Isar refuses to open a database
+whose existing rows violate one, and duraq 1.0.x could write duplicate rows for
+a single entry. That was verified against a fixture database written by the
+then-current release — an upgrade would have turned into a startup failure with
+`IsarError: Unique index violated`, which a caller cannot catch or recover from.
+
+**What M13 changes, and what it does not.** The schema version and migration
+runner mean there is now a place to run a one-off dedupe on upgrade. But Isar
+applies its schema — indexes included — *at `Isar.open`*, before any migration
+code can run. So a release that simply marks the index unique still fails to
+open a database that has duplicates in it. **Verify this before planning the
+work**; it is the crux, and it is an assumption, not something measured.
+
+If it holds, the change needs two releases:
+
+1. One that keeps the index non-unique and runs `removeDuplicateEntries` as the
+   schema-version-2 migration, so every database that opens gets cleaned.
+2. A later one that marks the index unique, safe only for databases that have
+   been through step 1.
+
+A database jumping straight from 1.0.x to step 2 would still fail to open. That
+is the question to settle: whether the guarantee is worth a two-release dance
+and a known-broken upgrade path for anyone who skips a version.
+
+**Worth asking first:** what does a unique index actually buy, given `store`
+already enforces identity and 298 tests cover it? The honest answer may be
+"defence against a bug in `store`", which is real but modest.
+
+---
+
+#### B. Should entry ids be unique per queue rather than across the storage?
+
+**Where** `packages/duraq/lib/src/storage/sqlite_storage.dart`, the
+`queue_entries` table — `id TEXT PRIMARY KEY`. And `IsarStorage.store`, which
+queries `entryIdEqualTo(entry.id)` across every queue to match that behaviour.
+
+**Today** an id is unique across the whole storage. Storing entry `job-1` in
+queue `a` means queue `b` cannot also hold `job-1`; it raises
+`DuplicateEntryException`.
+
+**Why** SQLite made the id the table's primary key, changing that needs a table
+rebuild, and H7 needed the two backends to agree *now*. Isar was brought in line
+with SQLite rather than the other way round, because matching the stricter rule
+could not break anything that already worked.
+
+**Why per-queue is the better model:** queues are namespaces. Two independent
+producers writing `order-42` into their own queues is reasonable, and today it
+fails for a reason that has nothing to do with either of them.
+
+**This one M13 genuinely unblocks.** The SQLite side is a standard rebuild, and
+it is exactly what the migration runner in `sqlite_schema.dart` is for — a step
+keyed to version 2 that runs inside its own transaction and rolls back whole:
+
+```sql
+CREATE TABLE queue_entries_new (... , PRIMARY KEY (queue_name, id));
+INSERT INTO queue_entries_new SELECT * FROM queue_entries;
+DROP TABLE queue_entries;
+ALTER TABLE queue_entries_new RENAME TO queue_entries;
+-- then recreate the indexes
+```
+
+The Isar side is smaller: drop the cross-queue lookup in `store` and let
+`entryKey`, which is already `queueName + entryId`, be the identity. The lock
+table keys on both already.
+
+**What it breaks.** Anything relying on global uniqueness — a caller using
+`DuplicateEntryException` to detect an id used anywhere, or treating ids as
+globally addressable. `retryDeadLetter`, `removeEntry` and friends already take
+a queue name, so the public API mostly does not change shape. It is a breaking
+*semantic* change, so it wants a major version.
+
+**Decide first:** whether this is worth a `duraq 3.0.0` on its own, or should
+wait and travel with other breaking work.
 
 ### Verifying
 
