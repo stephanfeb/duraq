@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# The gate. Everything that must be true before code leaves this machine.
+# The gate. Everything that must be true before code leaves this machine,
+# across every package in the repository.
 #
-#   tool/verify.sh            analyze, then run the suite once
-#   tool/verify.sh --flake    run the suite repeatedly instead, to hunt timing
+#   tool/verify.sh            analyze, then run each package's suite once
+#   tool/verify.sh --flake    run the suites repeatedly instead, to hunt timing
 #                             flakes (see finding Q6); count defaults to 3
 #
 # The pre-push hook and the GitHub workflow both call this, so the check a
@@ -12,8 +13,10 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-bold=$'\033[1m'; red=$'\033[31m'; green=$'\033[32m'; dim=$'\033[2m'; off=$'\033[0m'
-if [ ! -t 1 ]; then bold=''; red=''; green=''; dim=''; off=''; fi
+PACKAGES=(packages/duraq packages/duraq_isar)
+
+bold=$'\033[1m'; red=$'\033[31m'; green=$'\033[32m'; off=$'\033[0m'
+if [ ! -t 1 ]; then bold=''; red=''; green=''; off=''; fi
 
 failures=()
 
@@ -28,29 +31,39 @@ step() {
   fi
 }
 
+in_package() {
+  local pkg="$1"; shift
+  ( cd "$pkg" && "$@" )
+}
+
 flake_runs=0
 if [ "${1:-}" = "--flake" ]; then
   flake_runs="${2:-3}"
 fi
 
-if [ ! -d .dart_tool ]; then
-  printf '%s==> dart pub get%s\n' "$bold" "$off"
-  dart pub get || exit 1
-  printf '\n'
-fi
+for pkg in "${PACKAGES[@]}"; do
+  if [ ! -d "$pkg/.dart_tool" ]; then
+    printf '%s==> %s: dart pub get%s\n' "$bold" "$pkg" "$off"
+    in_package "$pkg" dart pub get || exit 1
+    printf '\n'
+  fi
+done
 
-# --fatal-infos is deliberate. Without it the analyzer reports a deprecated API
-# or an unused import and exits 0, which is how both shipped in 1.0.1.
-step "dart analyze (--fatal-infos --fatal-warnings)" \
-  dart analyze --fatal-infos --fatal-warnings
+for pkg in "${PACKAGES[@]}"; do
+  # --fatal-infos is deliberate. Without it the analyzer reports a deprecated
+  # API or an unused import and exits 0, which is how both shipped in 1.0.1.
+  step "$pkg: dart analyze (--fatal-infos --fatal-warnings)" \
+    in_package "$pkg" dart analyze --fatal-infos --fatal-warnings
 
-if [ "$flake_runs" -gt 0 ]; then
-  for i in $(seq 1 "$flake_runs"); do
-    step "dart test (run $i of $flake_runs)" dart test --reporter=failures-only
-  done
-else
-  step "dart test" dart test --reporter=failures-only
-fi
+  if [ "$flake_runs" -gt 0 ]; then
+    for i in $(seq 1 "$flake_runs"); do
+      step "$pkg: dart test (run $i of $flake_runs)" \
+        in_package "$pkg" dart test --reporter=failures-only
+    done
+  else
+    step "$pkg: dart test" in_package "$pkg" dart test --reporter=failures-only
+  fi
+done
 
 if [ "${#failures[@]}" -eq 0 ]; then
   printf '%s%sAll checks passed.%s\n' "$bold" "$green" "$off"

@@ -1,0 +1,27 @@
+name: duraq_isar
+description: Isar storage backend for DuraQ, the durable Dart queue
+version: 1.0.0
+repository: https://github.com/stephanfeb/duraq
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  # The two release together: this backend uses APIs added alongside the split.
+  duraq: ^1.0.2
+  isar: ^3.1.0+1
+  uuid: ^4.0.0
+
+dev_dependencies:
+  lints: ^2.1.0
+  test: '>=1.25.0 <2.0.0'
+  path: ^1.8.0
+  sqlite3: '>=2.2.0 <4.0.0'
+  isar_generator: ^3.1.0+1
+  build_runner: ^2.4.7
+
+# Worked against the duraq in this repository rather than a published one.
+# Removed by nothing: pub ignores overrides when resolving for a consumer.
+dependency_overrides:
+  duraq:
+    path: ../duraq

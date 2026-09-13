@@ -55,7 +55,7 @@ landed; this table is the index.
 | M9 | Metrics and health checks are inert | Fixed |
 | M11 | The storage interface has no teardown | Fixed |
 | M14 | Durability is one notch below what the name suggests | Fixed (default unchanged, now sayable) |
-| M12 | Isar is a hard dependency for everyone | **Open** — needs a decision, see below |
+| M12 | Isar is a hard dependency for everyone | Fixed (split into `duraq_isar`) |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
@@ -66,7 +66,8 @@ landed; this table is the index.
 ### Where the work lives
 
 Committed on branch `audit-remediation`, branched from `main` at `5315698`, not
-pushed. `7c78742` carries C1 to C6, H1 and H3 to H7; `701069a` carries H2;
+pushed. The repository is now two packages under `packages/`; paths below that
+predate the split are relative to `packages/duraq/`. `7c78742` carries C1 to C6, H1 and H3 to H7; `701069a` carries H2;
 `291bc56` carries the gate (Q4); `1dd3bad` carries M1 to M3;
 `e2804ce` carries M5, M6, M8 and M10; `7ef3ab6` carries M13;
 `8dfd163` carries M7 and M9.
@@ -90,7 +91,7 @@ against both backends), `contention_test.dart` (H3),
 
 Modified: both storage backends and both lock managers, the storage interface,
 `queue.dart`, `duraq.dart`, the Isar models and their generated code,
-`test/utils/mock_storage.dart`, `retry_lock_release_test.dart`, plus the README
+`packages/duraq/test/utils/mock_storage.dart`, `retry_lock_release_test.dart`, plus the README
 and CHANGELOG.
 
 A sensible commit split, smallest first: the serialization change (C1, C2); the
@@ -758,7 +759,7 @@ with the fix and collides without it, and the suite has run eight consecutive
 times clean since.
 
 Eleven of the twenty tests in `update_semantics_test.dart` fail against the old
-implementation, symmetrically across both backends. `test/utils/mock_storage.dart`
+implementation, symmetrically across both backends. `packages/duraq/test/utils/mock_storage.dart`
 was updated to match the contract: it could not clear those fields at all, so
 the mock and the real backends had quietly disagreed about M6 all along.
 
@@ -890,6 +891,54 @@ So durability at `full` costs about half the enqueue throughput on this machine,
 and `extra` buys nothing over `full` on APFS. That is the number a caller needs
 to make the trade, and it is now in the README.
 
+### Status: M12 fixed
+
+The Isar backend is its own package, `packages/duraq_isar`. A SQLite-only
+project no longer resolves `isar`, its generated code, or its version
+constraint. Dart has no optional dependencies, so a split was the only way to
+get there.
+
+The repository is now a monorepo: `packages/duraq` and `packages/duraq_isar`,
+with `docs/`, `tool/` and the CI workflow at the root. `tool/verify.sh` analyses
+and tests both, so the gate did not change shape.
+
+**The test split was the real work.** Eight of the eleven Isar test files also
+tested SQLite, and duplicating those suites would have left two descriptions of
+one contract to drift apart. Instead the parameterized suites moved to
+`packages/duraq/test/support/`, where each takes an opener and knows nothing
+about which backend it is running against. `duraq` supplies the SQLite opener,
+`duraq_isar` supplies the Isar one and reaches across to the same suites. That
+is one description of the contract, run twice — and it gives the README's
+"custom storage implementations via `StorageInterface`" something concrete
+behind it. The four hand-written files that had a group per backend were simply
+cut in half.
+
+Counts are unchanged by the split: 212 tests in `duraq`, 77 in `duraq_isar`,
+289 in total.
+
+**Two things surfaced that were nothing to do with the split**, both because
+moving the package re-resolved its dependencies for the first time in this work
+— `pubspec.lock` is not tracked, so everything until now had been running
+against versions pinned months ago.
+
+The first: **the package does not build cleanly against the newest `sqlite3` its
+own constraint allows.** `sqlite3` 3.0 renamed `Database.dispose` to `close` and
+deprecated the old name, and the constraint spans `>=2.2.0 <4.0.0`, where 2.x
+has only `dispose`. Neither name is clean across the range, so the fifteen call
+sites carry a targeted `// ignore: deprecated_member_use` with the reason and
+the condition for removing it. CI on a fresh runner would have hit this on its
+first green-field resolve; a tracked lock file had been hiding it.
+
+The second: **the Isar suites cannot run at the default test concurrency.** Isar
+holds a native database per open instance and these suites open one per test;
+above a low ceiling the test process is killed outright — exit 137, not a
+failure — on some runs and passes on others. Measured at one kill in two runs at
+the default and one in four at concurrency 4; concurrency 2 was clean across
+repeated runs with recompilation forced each time, and costs about a second.
+`packages/duraq_isar/dart_test.yaml` pins it, with that measurement written
+down, because a suite that dies rather than failing is the worst kind of flake:
+it looks like infrastructure.
+
 ## Test suite and process (Q1–Q6)
 
 | ID | Severity | Finding |
@@ -899,7 +948,7 @@ to make the trade, and it is now in the README.
 | Q3 | High | **The isolation test cannot fail.** `transaction_test.dart:142` runs two concurrent transactions and then asserts `futures.length == 2`. It passes while isolation is broken, which is how C1 survived to release. The durability step in the same test reopens the file in the same process, which does not exercise durability either. |
 | Q4 | High | **No CI and no lint configuration.** No `.github` directory, so nothing runs the suite on a push. No `analysis_options.yaml`, so the `lints` dev dependency is never applied. `dart analyze` reports 40 issues under defaults, including two deprecated `getUpdatedRows` calls on the lock path. |
 | Q5 | Medium | **The untested behaviours are the ones that fail.** Nothing covers crash recovery, retry timing, lease expiry, multi-process access, duplicate identifiers, dead-letter lock release, TTL of an in-flight entry, or behaviour at any real backlog size. Every critical defect sits in that gap. |
-| Q6 | Medium | **Tests lean on real databases and wall-clock waits.** `test/utils/mock_storage.dart` is present but unused; timing-sensitive assertions rely on real delays. Both will turn flaky on shared CI hardware. |
+| Q6 | Medium | **Tests lean on real databases and wall-clock waits.** `packages/duraq/test/utils/mock_storage.dart` is present but unused; timing-sensitive assertions rely on real delays. Both will turn flaky on shared CI hardware. |
 
 
 ### Status: Q4 fixed, Q6 partly
@@ -956,7 +1005,7 @@ consecutive runs pass after, six of them with six cores saturated.
 
 That is two timing assertions and one download race found this way. The
 underlying finding stands: the suite still drives real databases and real
-elapsed time, and `test/utils/mock_storage.dart` is still barely used.
+elapsed time, and `packages/duraq/test/utils/mock_storage.dart` is still barely used.
 
 The format check is deliberately **not** in the gate. Dart 3.11 formats in the
 tall style, which rewrites 35 of the 46 source files, and restyling a published
