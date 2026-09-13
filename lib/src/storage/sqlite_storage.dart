@@ -13,6 +13,40 @@ import 'sqlite_schema.dart';
 import 'storage_interface.dart';
 
 /// SQLite-based implementation of StorageInterface
+/// How hard SQLite works to make a commit survive the machine going down.
+///
+/// Maps onto SQLite's `synchronous` pragma. The trade is durability against
+/// write throughput; none of these settings affect what a DuraQ process losing
+/// *itself* survives, only what survives the operating system or the power
+/// going away underneath it.
+enum SqliteSynchronous {
+  /// No syncing at all. Fastest, and a crash of the machine can leave the
+  /// database corrupt, not merely missing recent work. Do not use this for a
+  /// queue holding anything worth keeping.
+  off('OFF', 0),
+
+  /// Sync at checkpoints rather than every commit. The default, and the usual
+  /// setting for write-ahead logging: the database stays consistent across a
+  /// machine crash, but the most recent commits can be lost.
+  normal('NORMAL', 1),
+
+  /// Sync on every commit. A job that was accepted is on the disk before the
+  /// call returns, at the cost of an fsync per commit.
+  full('FULL', 2),
+
+  /// Like [full], and also syncs the directory entry on commit. Slower still,
+  /// and only meaningful on filesystems where that is not implied.
+  extra('EXTRA', 3);
+
+  const SqliteSynchronous(this.pragmaValue, this.pragmaCode);
+
+  /// The value written into `PRAGMA synchronous`.
+  final String pragmaValue;
+
+  /// The number `PRAGMA synchronous` reads back as.
+  final int pragmaCode;
+}
+
 class SQLiteStorage implements StorageInterface {
   late final Database _db;
   final String dbPath;
@@ -67,11 +101,25 @@ class SQLiteStorage implements StorageInterface {
   /// attempt. Kept short because the driver blocks the isolate while it waits.
   static const _busySlice = Duration(milliseconds: 50);
 
+  /// How hard the database works to survive a crash of the machine.
+  ///
+  /// Defaults to [SqliteSynchronous.normal], which is what this package has
+  /// always used and what write-ahead logging is usually run at. A DuraQ
+  /// process that dies loses nothing at this setting: the operating system
+  /// still holds the committed data. What it does not survive is the machine
+  /// going down — an OS crash or a power cut can lose the most recent commits,
+  /// which for a queue means jobs that were accepted disappearing.
+  ///
+  /// Raise it to [SqliteSynchronous.full] where losing an accepted job matters
+  /// more than throughput. That costs an fsync per commit.
+  final SqliteSynchronous synchronous;
+
   SQLiteStorage({
     required this.dbPath,
     this.leaseDuration = defaultLockDuration,
     this.maxDeliveryAttempts = defaultMaxDeliveryAttempts,
     this.busyTimeout = defaultBusyTimeout,
+    this.synchronous = SqliteSynchronous.normal,
   }) {
     _initDatabase();
   }
@@ -97,6 +145,11 @@ class SQLiteStorage implements StorageInterface {
     // Enable foreign keys and WAL mode for better concurrency
     _db.execute('PRAGMA foreign_keys = ON');
     _enableWalMode();
+
+    // Unlike journal_mode, this is per connection rather than a property of
+    // the file, so it is set on every open. PRAGMA takes no parameters, hence
+    // the interpolation; the value comes from an enum, not from a caller.
+    _db.execute('PRAGMA synchronous = ${synchronous.pragmaValue}');
 
     // Initialize lock manager
     _lock = QueueLock(_db);
@@ -163,6 +216,19 @@ class SQLiteStorage implements StorageInterface {
         .isNotEmpty,
     migrations: const {},
   );
+
+  /// The synchronous setting this connection is running at.
+  ///
+  /// Read back from the database rather than reported from [synchronous],
+  /// because the setting is per connection: opening the same file elsewhere
+  /// says nothing about what this one is doing.
+  SqliteSynchronous get activeSynchronous {
+    final code = _db.select('PRAGMA synchronous').first.values.first as int;
+    return SqliteSynchronous.values.firstWhere(
+      (mode) => mode.pragmaCode == code,
+      orElse: () => synchronous,
+    );
+  }
 
   /// The schema version recorded in the database file.
   ///
@@ -994,6 +1060,14 @@ class SQLiteStorage implements StorageInterface {
 
     return result.map((row) => _rowToEntry(row, statusOverride: status)).toList();
   }
+
+  /// Releases this storage's resources.
+  ///
+  /// The interface's teardown, so shutdown can be written without knowing
+  /// which backend is underneath. Equivalent to [dispose] here, which stays
+  /// for callers already using it.
+  @override
+  Future<void> close() async => dispose();
 
   /// Disposes of the storage
   void dispose() {

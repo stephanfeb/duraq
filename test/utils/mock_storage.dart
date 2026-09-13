@@ -258,8 +258,20 @@ class MockStorage implements StorageInterface {
     return entries.isEmpty ? null : entries.first;
   }
 
+  /// Whether [close] has been called.
+  bool get isClosed => _closed;
+  bool _closed = false;
+
+  @override
+  Future<void> close() async {
+    _closed = true;
+  }
+
   @override
   Future<void> ping() async {
+    if (_closed) {
+      throw StateError('Cannot use a closed MockStorage');
+    }
     if (!_pingSuccess) {
       throw _pingError ?? Exception('Mock ping failure');
     }

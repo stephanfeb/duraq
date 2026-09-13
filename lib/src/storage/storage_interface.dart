@@ -141,6 +141,20 @@ abstract class StorageInterface {
   /// Checks if the storage is responsive
   Future<void> ping();
 
+  /// Releases whatever this storage holds: connections, locks, timers.
+  ///
+  /// Neither backend's teardown could be reached through this interface before,
+  /// so shutdown could not be written without knowing which backend was
+  /// underneath — SQLite's is synchronous and returns void, Isar's is
+  /// asynchronous. This is the one both answer to.
+  ///
+  /// A storage that has been closed rejects further operations. Closing twice
+  /// is not an error.
+  ///
+  /// The Isar backend does not close the Isar instance it was given: the caller
+  /// opened it and may be sharing it, so the caller closes it.
+  Future<void> close();
+
   /// Performs one pass of periodic upkeep and reports what it did.
   ///
   /// A pass returns entries whose consumer died to the queue, marks entries

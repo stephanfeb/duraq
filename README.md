@@ -144,6 +144,42 @@ Features:
 > as shown above, nothing changes for you. If you listed DuraQ's collections by
 > hand, add it — otherwise the first operation raises an error saying so.
 
+### Durability
+
+SQLite runs in write-ahead logging mode at `synchronous = NORMAL`. A DuraQ
+process that crashes loses nothing — the operating system still holds what was
+committed. What that setting does not survive is the *machine* going down: an OS
+crash or a power cut can lose the most recent commits, which for a queue means
+jobs that were accepted disappearing.
+
+If that matters more than throughput:
+
+```dart
+final storage = SQLiteStorage(
+  dbPath: dbPath,
+  synchronous: SqliteSynchronous.full, // fsync on every commit
+);
+
+storage.activeSynchronous; // what this connection is actually running at
+```
+
+Measured on one machine, `full` costs about half the single-enqueue throughput
+(13,496/s to 6,913/s). The setting belongs to the connection rather than the
+file, so one process asking for `full` does not make another careful.
+
+### Shutting Down
+
+Every backend answers to `close()`, so shutdown does not need to know which one
+it is talking to:
+
+```dart
+Future<void> shutDown(StorageInterface storage) => storage.close();
+```
+
+`dispose()` still works on both concrete classes. The Isar backend releases its
+locks but leaves the Isar instance open, because the caller opened it and may be
+sharing it.
+
 ### Schema Versions
 
 Both backends record the schema version of the database they are working with:

@@ -745,6 +745,14 @@ class IsarStorage implements StorageInterface {
         .toList();
   }
 
+  /// Releases this storage's resources.
+  ///
+  /// The interface's teardown, so shutdown can be written without knowing which
+  /// backend is underneath. Equivalent to [dispose] here, which stays for
+  /// callers already using it.
+  @override
+  Future<void> close() => dispose();
+
   /// Disposes of the storage
   ///
   /// This releases the locks this instance holds but does NOT close the Isar

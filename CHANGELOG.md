@@ -124,6 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
+- `StorageInterface` gained `close()`. Custom backends must declare it; both
+  built-in backends delegate to their existing `dispose()`.
 - `StorageInterface` gained `countReady()`. Custom backends must declare it;
   the interface's default body filters `retrieveAll`, which is correct but
   reads every entry, so a real backend should answer with a query.
@@ -216,6 +218,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   written by earlier versions. Those versions could store several rows for one
   entry; this collapses them, keeping the most recently updated row, and
   returns how many rows it removed. Run it once after upgrading.
+- `close()` on `StorageInterface`, implemented by both backends. Neither
+  `dispose` nor `close` appeared on the interface before, and the two backends
+  disagreed on the shape — SQLite's was synchronous and returned void, Isar's
+  was asynchronous — so shutdown could not be written without knowing which
+  backend was underneath. `dispose()` stays on both concrete classes for
+  callers already using it; the Isar backend still leaves the Isar instance
+  open, since the caller owns it.
+- `synchronous` on `SQLiteStorage`, with `SqliteSynchronous` and the
+  `activeSynchronous` getter that reads the setting back from the live
+  connection. Write-ahead logging runs at `NORMAL`, which is unchanged and
+  still the default: a DuraQ process that dies loses nothing, but the machine
+  going down can lose the most recent commits — for a queue, jobs that were
+  accepted. `SqliteSynchronous.full` closes that at a measured cost of about
+  half the single-enqueue throughput (13,496/s to 6,913/s, median of five
+  interleaved rounds).
 - `countReady()` on `StorageInterface`, both backends and `Queue.readyLength`:
   the number of entries that can be handed out *now*. `count()` includes
   entries scheduled for later and entries waiting out a retry backoff, so a

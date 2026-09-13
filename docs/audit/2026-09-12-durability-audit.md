@@ -53,7 +53,9 @@ landed; this table is the index.
 | M13 | No schema version, no migration path | Fixed (unblocks the two deferred decisions) |
 | M7 | Queue length counts jobs that cannot be dequeued | Fixed (`countReady` added; `count` unchanged) |
 | M9 | Metrics and health checks are inert | Fixed |
-| M11, M12, M14 | Contract, clarity and dead weight | **Open** |
+| M11 | The storage interface has no teardown | Fixed |
+| M14 | Durability is one notch below what the name suggests | Fixed (default unchanged, now sayable) |
+| M12 | Isar is a hard dependency for everyone | **Open** — needs a decision, see below |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
@@ -853,6 +855,40 @@ in a fix aimed at exactly that.
 The old health test asserted `details['queueSize'] == 5` after recording a size
 against the queue named `default`. It encoded the defect, so it was rewritten
 rather than kept.
+
+### Status: M11 and M14 fixed
+
+**M11.** `close()` is on `StorageInterface` and both backends implement it, so
+shutdown can be written once against the interface. `dispose()` stays on both
+concrete classes for callers already using it. The Isar backend still leaves the
+Isar instance open, because the caller opened it and may be sharing it — that is
+a property worth keeping, not an oversight.
+
+**M14.** The default is unchanged: write-ahead logging at `synchronous = NORMAL`
+is the right default and is what every release so far used. What was missing is
+the ability to say otherwise, and a statement of what the default costs. Both
+now exist.
+
+The measurement had to be done carefully. `synchronous` is a property of the
+*connection*, not of the file, so the obvious check — open a second connection
+and read the pragma — reports that connection's own default and says nothing.
+That is why `activeSynchronous` reads the setting back from the live connection,
+and why a test asserts two storages on one file can run at different settings.
+
+The first benchmark was also wrong: too few iterations on a fresh database per
+mode, which produced the nonsense of `FULL` measuring faster than `OFF`. Five
+interleaved rounds of 1,500 enqueues, medians:
+
+| Setting | Single enqueues/s | vs NORMAL |
+| --- | --- | --- |
+| off | 15,042 | +11.5% |
+| **normal** (default) | **13,496** | — |
+| full | 6,913 | −48.8% |
+| extra | 6,947 | −48.5% |
+
+So durability at `full` costs about half the enqueue throughput on this machine,
+and `extra` buys nothing over `full` on APFS. That is the number a caller needs
+to make the trade, and it is now in the README.
 
 ## Test suite and process (Q1–Q6)
 
