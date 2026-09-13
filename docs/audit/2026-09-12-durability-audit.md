@@ -61,7 +61,7 @@ landed; this table is the index.
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
 | Q4 | No CI, no lint configuration | Fixed |
 | Q5 | Untested behaviours are the ones that fail | Mostly closed; TTL of an in-flight entry and dead-letter lock release are still untested |
-| Q6 | Tests lean on real databases and wall-clock waits | Partly: three flakes found and fixed (two timing assertions, one Isar download race), and `tool/verify.sh --flake` now hunts for more. The suite still uses real databases and real elapsed time |
+| Q6 | Tests lean on real databases and wall-clock waits | Partly: six flakes found and fixed, two of which were real defects rather than bad tests. `tool/verify.sh --flake` hunts for more. The suites still use real databases and real elapsed time |
 
 ### Where the work lives
 
@@ -939,6 +939,35 @@ repeated runs with recompilation forced each time, and costs about a second.
 `packages/duraq_isar/dart_test.yaml` pins it, with that measurement written
 down, because a suite that dies rather than failing is the worst kind of flake:
 it looks like infrastructure.
+
+### Status: a sixth flake, caught by the gate on a push
+
+The pre-push hook refused a push to main: `lease_reclaim_test`, on the Isar
+side, expected a claimed entry to stay claimed and got it handed back.
+
+It was not a regression. The suite gave every test in the group a 200ms lease,
+and the failing test asserts a claim is *held* — so it depended on less than
+200ms of wall clock passing between two of its own statements. Under the load
+of a push, more than 200ms passed, the lease lapsed, the entry was reclaimed,
+and the second retrieval returned it. The assertion was reporting the clock,
+not the queue.
+
+Confirmed by injecting a 500ms stall between the two retrievals: with the
+group's 200ms lease that reproduces the push failure exactly, and with a lease
+that cannot lapse it passes. The test now asks for a five-minute lease; the
+tests around it that assert a claim *expires* keep the short one, because
+waiting longer than a lease is a safe direction to be wrong in. Both backends'
+halves were changed, since both had the same latent assumption.
+
+This is the sixth flake `--flake` mode or the gate has surfaced, and the fourth
+of this shape: an assertion that reports how fast the machine was rather than
+what the code did. Two of the six turned out to be real defects — colliding
+lock ids, and the Isar suites being killed rather than failing at the default
+test concurrency.
+
+Worth stating plainly, since it is the argument for the gate: this one was
+caught by the hook, on the way out, on a machine busy enough to expose it. A
+green local run had passed five times in a row beforehand.
 
 ## Test suite and process (Q1–Q6)
 

@@ -21,13 +21,19 @@ void main() {
     late String dbPath;
     late SQLiteStorage storage;
 
+    /// Reopens the storage with a chosen lease.
+    ///
+    /// Most tests here want a lease short enough to watch expire. The one that
+    /// asserts a claim is *held* wants the opposite, and must not depend on
+    /// how long its own statements take to run.
+    void useStorage({Duration lease = const Duration(milliseconds: 200)}) {
+      storage = SQLiteStorage(dbPath: dbPath, leaseDuration: lease);
+    }
+
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('duraq_lease_');
       dbPath = path.join(tempDir.path, 'duraq_test.db');
-      storage = SQLiteStorage(
-        dbPath: dbPath,
-        leaseDuration: const Duration(milliseconds: 200),
-      );
+      useStorage();
     });
 
     tearDown(() {
@@ -38,6 +44,15 @@ void main() {
     });
 
     test('an entry is not reclaimed while its lease is live', () async {
+      // A lease long enough that it cannot lapse while this test runs. With
+      // the group's 200ms it could, and did once under the load of a push:
+      // the entry was reclaimed between the two retrievals and the second one
+      // handed it back, which reads as the claim not being honoured when it is
+      // really the clock. A test that asserts a claim is held must not depend
+      // on how long its own statements take.
+      storage.dispose();
+      useStorage(lease: const Duration(minutes: 5));
+
       await storage.store('test-queue', entry('e1'));
 
       final claimed = await storage.retrieve('test-queue');

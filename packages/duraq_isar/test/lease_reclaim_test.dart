@@ -15,6 +15,15 @@ void main() {
     late Isar isar;
     late String tempDir;
 
+    /// Reopens the storage with a chosen lease.
+    ///
+    /// Most tests here want a lease short enough to watch expire. The one that
+    /// asserts a claim is *held* wants the opposite, and must not depend on
+    /// how long its own statements take to run.
+    void useStorage({Duration lease = const Duration(milliseconds: 200)}) {
+      storage = IsarStorage(isar, leaseDuration: lease);
+    }
+
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_lease_isar_').path;
       await ensureIsarCore();
@@ -23,10 +32,7 @@ void main() {
         directory: tempDir,
         name: 'lease_test',
       );
-      storage = IsarStorage(
-        isar,
-        leaseDuration: const Duration(milliseconds: 200),
-      );
+      useStorage();
     });
 
     tearDown(() async {
@@ -40,6 +46,15 @@ void main() {
     });
 
     test('an entry is not reclaimed while its lease is live', () async {
+      // A lease long enough that it cannot lapse while this test runs. With
+      // the group's 200ms it could, and did once under the load of a push: the
+      // entry was reclaimed between the two retrievals and the second one
+      // handed it back, which reads as the claim not being honoured when it is
+      // really the clock. A test that asserts a claim is held must not depend
+      // on how long its own statements take.
+      await storage.dispose();
+      useStorage(lease: const Duration(minutes: 5));
+
       await storage.store('test-queue', entry('e1'));
 
       expect((await storage.retrieve('test-queue'))?.id, equals('e1'));
