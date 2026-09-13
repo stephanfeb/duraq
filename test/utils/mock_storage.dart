@@ -132,6 +132,7 @@ class MockStorage implements StorageInterface {
     String? errorMessage,
     DateTime? nextRetryAt,
     int? attempts,
+    String? leaseId,
   }) async {
     final queue = _queues[queueName];
     if (queue != null) {

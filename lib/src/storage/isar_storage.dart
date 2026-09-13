@@ -92,8 +92,13 @@ class IsarStorage implements StorageInterface {
 
   /// Converts a QueueEntryCollection to a QueueEntry.
   /// If [statusOverride] is provided, it is used instead of the collection's status.
-  QueueEntry<T> _collectionToEntry<T>(QueueEntryCollection entry, {EntryStatus? statusOverride}) {
+  QueueEntry<T> _collectionToEntry<T>(
+    QueueEntryCollection entry, {
+    EntryStatus? statusOverride,
+    String? leaseId,
+  }) {
     return QueueEntry<T>(
+      leaseId: leaseId,
       id: entry.entryId,
       data: jsonDecode(entry.data) as T,
       createdAt: entry.createdAt,
@@ -440,7 +445,7 @@ class IsarStorage implements StorageInterface {
         entryCollection.lastUpdatedAt = now;
         await _isar.queueEntryCollections.put(entryCollection);
 
-        return _collectionToEntry(entryCollection);
+        return _collectionToEntry(entryCollection, leaseId: lockId);
       }
 
       // Every candidate in this batch is locked elsewhere. If the batch came
@@ -545,17 +550,26 @@ class IsarStorage implements StorageInterface {
     String? errorMessage,
     DateTime? nextRetryAt,
     int? attempts,
+    String? leaseId,
   }) async {
     _checkDisposed();
 
     await IsarWriteScope.run(_isar, () async {
+      // A consumer whose lease expired while it was working no longer speaks
+      // for this entry: whoever holds the claim now does. Discard the change
+      // rather than applying it over their work.
+      if (leaseId != null &&
+          !await _lock.isHeldBy(queueName, entryId, leaseId)) {
+        return;
+      }
+
       // Release the lock if the entry is no longer being processed. This runs
       // in the same transaction as the status change, so a failure cannot
       // leave one applied without the other.
       if (status == EntryStatus.completed ||
           status == EntryStatus.failed ||
           status == EntryStatus.pending) {
-        await _lock.release(queueName, entryId);
+        await _lock.release(queueName, entryId, lockId: leaseId);
       }
 
       final entry = await _findEntry(queueName, entryId);

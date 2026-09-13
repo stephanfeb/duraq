@@ -67,7 +67,7 @@ class Queue<T> {
 
     try {
       await processor(entry.data as T);
-      await _markCompleted(entry.id);
+      await _markCompleted(entry.id, entry.leaseId);
       return true;
     } catch (e) {
       await _handleFailure(entry, e.toString());
@@ -76,8 +76,13 @@ class Queue<T> {
   }
 
   /// Marks an entry as completed
-  Future<void> _markCompleted(String entryId) async {
-    await _storage.updateEntryStatus(name, entryId, EntryStatus.completed);
+  Future<void> _markCompleted(String entryId, String? leaseId) async {
+    await _storage.updateEntryStatus(
+      name,
+      entryId,
+      EntryStatus.completed,
+      leaseId: leaseId,
+    );
   }
 
   /// Handles a failed entry according to retry policy
@@ -91,6 +96,7 @@ class Queue<T> {
           EntryStatus.deadLetter,
           errorMessage: error,
           attempts: attempts,
+          leaseId: entry.leaseId,
         );
       } else {
         await _storage.updateEntryStatus(
@@ -99,6 +105,7 @@ class Queue<T> {
           EntryStatus.failed,
           errorMessage: error,
           attempts: attempts,
+          leaseId: entry.leaseId,
         );
       }
       return;
@@ -114,6 +121,7 @@ class Queue<T> {
       errorMessage: error,
       nextRetryAt: nextRetry,
       attempts: attempts,
+      leaseId: entry.leaseId,
     );
   }
 

@@ -43,6 +43,17 @@ class QueueEntry<T> {
   /// Next retry attempt scheduled for
   final DateTime? nextRetryAt;
 
+  /// Identifies the claim a consumer holds on this entry.
+  ///
+  /// Set by the storage when the entry is handed out, and passed back when the
+  /// entry is completed or failed so that the storage can tell whether the
+  /// claim is still the live one. A consumer whose lease expired while it was
+  /// working holds a stale id, and its result is discarded rather than applied
+  /// over the work of whoever picked the entry up next.
+  ///
+  /// Not persisted with the entry: the lease lives in the lock table.
+  final String? leaseId;
+
   /// Creates a new queue entry
   QueueEntry({
     required this.id,
@@ -56,6 +67,7 @@ class QueueEntry<T> {
     this.status = EntryStatus.pending,
     this.errorMessage,
     this.nextRetryAt,
+    this.leaseId,
   }) : lastUpdatedAt = lastUpdatedAt ?? createdAt;
 
   /// Whether this entry has expired
@@ -83,6 +95,7 @@ class QueueEntry<T> {
     EntryStatus? status,
     String? errorMessage,
     DateTime? nextRetryAt,
+    String? leaseId,
   }) {
     return QueueEntry<T>(
       id: id ?? this.id,
@@ -96,6 +109,7 @@ class QueueEntry<T> {
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
       nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      leaseId: leaseId ?? this.leaseId,
     );
   }
 

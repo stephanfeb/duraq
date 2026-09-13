@@ -356,8 +356,11 @@ final recovered = await storage.reclaimStaleEntries();
 print('recovered $recovered entries from the last run');
 ```
 
-Set `leaseDuration` longer than your slowest job, or a second consumer may pick
-up an entry that is still being processed. An entry whose lease expires
+Set `leaseDuration` longer than your slowest job. A consumer that runs past its
+lease loses the entry: whatever it reports when it finishes is discarded, because
+the entry now belongs to whoever picked it up next, and the job runs again. That
+is the at-least-once behaviour a visibility timeout gives you, but it is worth
+sizing the lease so it stays rare. An entry whose lease expires
 `maxDeliveryAttempts` times is moved to the dead letter queue instead of being
 delivered again, so a job that crashes its consumer cannot cycle forever.
 

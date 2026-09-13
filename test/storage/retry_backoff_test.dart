@@ -24,6 +24,24 @@ void main() {
         priority: priority,
       );
 
+  /// Retrieves as soon as an entry becomes available, giving up after [limit].
+  ///
+  /// Polling rather than sleeping for a fixed margin keeps the test honest
+  /// about what it is asserting and stops it failing on a loaded machine.
+  Future<QueueEntry?> retrieveWithin(
+    StorageInterface storage,
+    String queueName,
+    Duration limit,
+  ) async {
+    final deadline = DateTime.now().add(limit);
+    while (DateTime.now().isBefore(deadline)) {
+      final entry = await storage.retrieve(queueName);
+      if (entry != null) return entry;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    return null;
+  }
+
   /// Drives one failing attempt through the queue and returns the delay the
   /// policy actually chose, so timing assertions do not depend on jitter.
   Future<Duration> failOnceAndReadDelay(
@@ -130,10 +148,12 @@ void main() {
       // Still inside the backoff window.
       expect(await storage.retrieve('test-queue'), isNull);
 
-      await Future<void>.delayed(delay + const Duration(milliseconds: 150));
-
-      final retried = await storage.retrieve('test-queue');
-      expect(retried?.id, isNotNull);
+      final retried = await retrieveWithin(
+        storage,
+        'test-queue',
+        delay + const Duration(seconds: 5),
+      );
+      expect(retried, isNotNull);
       expect(retried?.attempts, equals(1));
     });
 
@@ -220,10 +240,12 @@ void main() {
 
       expect(await storage.retrieve('test-queue'), isNull);
 
-      await Future<void>.delayed(delay + const Duration(milliseconds: 150));
-
-      final retried = await storage.retrieve('test-queue');
-      expect(retried?.id, isNotNull);
+      final retried = await retrieveWithin(
+        storage,
+        'test-queue',
+        delay + const Duration(seconds: 5),
+      );
+      expect(retried, isNotNull);
       expect(retried?.attempts, equals(1));
     });
   });

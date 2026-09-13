@@ -46,14 +46,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `processing` with no live lock is returned to the queue on the next
   retrieval, so a crash, a kill, or a `dequeue()` that is never acknowledged no
   longer loses the job. Both backends.
+- A consumer whose lease expired can no longer finish an entry that has since
+  been given to someone else. Claims carry a lease id now: `retrieve` returns it
+  on the entry, `updateEntryStatus` takes it, and a status change made against a
+  lease that is no longer the live one is discarded rather than applied over the
+  work of whoever holds the entry. `Queue.processNext` passes it for you. The
+  lock id had been generated and returned since the beginning and then kept by
+  nobody, so release deleted whatever lock was on the entry.
 - `dispose()` no longer releases locks held by other consumers. The release was
   an unfiltered delete over the lock table, so one process shutting down freed
   every in-flight entry in the database, including entries other processes were
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
-- `StorageInterface.store()` takes a new `onConflict` parameter and
-  `StorageInterface` gained `runMaintenance()`. Custom backends must add both.
+- `StorageInterface.store()` takes a new `onConflict` parameter,
+  `updateEntryStatus()` takes a new `leaseId` parameter, and `StorageInterface`
+  gained `runMaintenance()`. Custom backends must add all three.
   Dart's `implements` copies only signatures, so the default `runMaintenance`
   body does not reach a class that implements the interface rather than
   extending it.

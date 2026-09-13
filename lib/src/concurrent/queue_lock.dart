@@ -83,21 +83,52 @@ class QueueLock {
     }
   }
 
-  /// Releases a lock on an entry
-  Future<bool> release(String queueName, String entryId) async {
-    final stmt = _db.prepare('''
+  /// Releases a lock on an entry.
+  ///
+  /// Pass [lockId] to release only that particular lock. Without it any lock on
+  /// the entry is released, including one taken by another consumer after this
+  /// one's lease expired.
+  Future<bool> release(String queueName, String entryId, {String? lockId}) async {
+    final stmt = _db.prepare(lockId == null
+        ? '''
       DELETE FROM $_tableName
       WHERE queue_name = ?
       AND entry_id = ?
+    '''
+        : '''
+      DELETE FROM $_tableName
+      WHERE queue_name = ?
+      AND entry_id = ?
+      AND lock_id = ?
     ''');
     try {
-      stmt.execute([queueName, entryId]);
+      stmt.execute([queueName, entryId, if (lockId != null) lockId]);
       final changes = _db.getUpdatedRows();
-      _ownedLocks.remove(_ownerKey(queueName, entryId));
+      final key = _ownerKey(queueName, entryId);
+      if (lockId == null || _ownedLocks[key] == lockId) {
+        _ownedLocks.remove(key);
+      }
       return changes > 0;
     } finally {
       stmt.dispose();
     }
+  }
+
+  /// Whether [lockId] is the lock currently held on the entry.
+  ///
+  /// False once the lease has expired, even if the row is still there, because
+  /// an expired lease no longer entitles its holder to anything.
+  Future<bool> isHeldBy(String queueName, String entryId, String lockId) async {
+    final result = _db.select(
+      '''
+      SELECT lock_id FROM $_tableName
+      WHERE queue_name = ?
+      AND entry_id = ?
+      AND expires_at > ?
+      ''',
+      [queueName, entryId, DateTime.now().millisecondsSinceEpoch],
+    );
+    return result.isNotEmpty && result.first['lock_id'] == lockId;
   }
 
   /// Checks if an entry is currently locked

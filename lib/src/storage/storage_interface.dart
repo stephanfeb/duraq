@@ -57,7 +57,13 @@ abstract class StorageInterface {
   /// Removes a specific entry from a queue
   Future<void> removeEntry(String queueName, String entryId);
 
-  /// Updates the status of a queue entry
+  /// Updates the status of a queue entry.
+  ///
+  /// Pass the [leaseId] the entry was handed out with to make the change
+  /// conditional on still holding the claim. If the lease has since expired and
+  /// the entry was given to another consumer, the change is discarded rather
+  /// than applied over that consumer's work. Omitting it updates the entry
+  /// unconditionally, which is what an administrative change wants.
   Future<void> updateEntryStatus(
     String queueName,
     String entryId,
@@ -65,6 +71,7 @@ abstract class StorageInterface {
     String? errorMessage,
     DateTime? nextRetryAt,
     int? attempts,
+    String? leaseId,
   });
 
   /// Retrieves a dead letter entry from a queue

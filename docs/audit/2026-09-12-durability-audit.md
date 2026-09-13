@@ -36,7 +36,7 @@ landed; this table is the index.
 | C5 | Isar stores and delivers one job many times | Fixed (residual: index not unique) |
 | C6 | Isar transactions provide no atomicity | Fixed (manual API now throws) |
 | H1 | Disposing releases every lock in the database | Fixed |
-| H2 | Lock owner identifier never checked | **Open** |
+| H2 | Lock owner identifier never checked | Fixed (unconditional updates still possible by omitting the lease) |
 | H3 | Multi-process use not configured for | Fixed |
 | H4 | Dequeue rescans the backlog | Fixed |
 | H5 | Isar declares ten indexes and uses none | Fixed |
@@ -49,12 +49,18 @@ landed; this table is the index.
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
 | Q4 | No CI, no lint configuration | **Open** |
 | Q5 | Untested behaviours are the ones that fail | Mostly closed; TTL of an in-flight entry and dead-letter lock release are still untested |
-| Q6 | Tests lean on real databases and wall-clock waits | **Open**, and more wall-clock waits were added |
+| Q6 | Tests lean on real databases and wall-clock waits | **Open**. One added test flaked under parallel load and was changed to poll rather than sleep for a fixed margin; the same pattern is still used elsewhere |
 
-### State of the working tree
+### Where the work lives
 
-Everything below is **uncommitted**. 166 tests pass; `dart analyze` reports two
-pre-existing deprecation notices outside generated code.
+Committed on branch `audit-remediation`, branched from `main` at `5315698`, not
+pushed. `7c78742` carries C1 to C6, H1 and H3 to H7; H2 follows it. One commit: the changes for different findings interleave
+inside the two storage files, and the intermediate states were never committed,
+so a per-finding split would have meant staging hunks by hand into commits
+nobody ever ran the tests against.
+
+166 tests pass; `dart analyze` reports two pre-existing deprecation notices
+outside generated code.
 
 New source files: `lib/src/errors.dart`,
 `lib/src/concurrent/serial_lock.dart`, `lib/src/storage/maintenance.dart`,
@@ -372,6 +378,20 @@ appearance of ownership without enforcing it.
 
 **Fix** Carry the lock identifier with the claimed entry and make release
 conditional on it.
+
+**Status — fixed, not yet released.** `retrieve` returns the lease id on the
+entry, `updateEntryStatus` accepts it, and a change made against a lease that is
+no longer the live one is discarded instead of applied over the work of whoever
+holds the entry now. Release is conditional on the lease id, so a stale consumer
+cannot free its successor's claim. `Queue.processNext` passes the lease
+automatically, on completion and on failure alike. Covered for both backends by
+`test/storage/lease_ownership_test.dart`.
+
+**Omitting the lease still updates unconditionally.** Administrative changes and
+the dead letter flows hold no claim, and requiring one would break every direct
+caller. So the escape hatch the finding describes is still open to code that
+asks for it; what is closed is the library's own path, which is where the
+double-processing came from.
 
 ---
 

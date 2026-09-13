@@ -231,8 +231,14 @@ class SQLiteStorage implements StorageInterface {
 
   /// Converts a database row to a QueueEntry.
   /// If [statusOverride] is provided, it is used instead of the row's status.
-  QueueEntry<T> _rowToEntry<T>(Row row, {EntryStatus? statusOverride}) {
+  /// [leaseId] is set when the row is being handed to a consumer.
+  QueueEntry<T> _rowToEntry<T>(
+    Row row, {
+    EntryStatus? statusOverride,
+    String? leaseId,
+  }) {
     return QueueEntry<T>(
+      leaseId: leaseId,
       id: row['id'] as String,
       data: jsonDecode(row['data'] as String) as T,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
@@ -683,7 +689,11 @@ class SQLiteStorage implements StorageInterface {
           ],
         );
 
-        return _rowToEntry(row, statusOverride: EntryStatus.processing);
+        return _rowToEntry(
+          row,
+          statusOverride: EntryStatus.processing,
+          leaseId: lockId,
+        );
       }
 
       // Every candidate in this batch is locked elsewhere. If the batch came
@@ -811,6 +821,7 @@ class SQLiteStorage implements StorageInterface {
     String? errorMessage,
     DateTime? nextRetryAt,
     int? attempts,
+    String? leaseId,
   }) =>
       _exclusive(() => _updateEntryStatus(
             queueName,
@@ -819,6 +830,7 @@ class SQLiteStorage implements StorageInterface {
             errorMessage: errorMessage,
             nextRetryAt: nextRetryAt,
             attempts: attempts,
+            leaseId: leaseId,
           ));
 
   Future<void> _updateEntryStatus(
@@ -828,12 +840,20 @@ class SQLiteStorage implements StorageInterface {
     String? errorMessage,
     DateTime? nextRetryAt,
     int? attempts,
+    String? leaseId,
   }) async {
     _checkDisposed();
 
+    // A consumer whose lease expired while it was working no longer speaks for
+    // this entry: whoever holds the claim now does. Discard the change rather
+    // than applying it over their work.
+    if (leaseId != null && !await _lock.isHeldBy(queueName, entryId, leaseId)) {
+      return;
+    }
+
     // Release the lock if the entry is no longer being processed
     if (status == EntryStatus.completed || status == EntryStatus.failed || status == EntryStatus.pending) {
-      await _lock.release(queueName, entryId);
+      await _lock.release(queueName, entryId, lockId: leaseId);
     }
 
     if (attempts != null) {

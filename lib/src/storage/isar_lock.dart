@@ -63,20 +63,44 @@ class IsarQueueLock {
     }
   }
 
-  /// Releases a lock on an entry
-  Future<bool> release(String queueName, String entryId) async {
+  /// Releases a lock on an entry.
+  ///
+  /// Pass [lockId] to release only that particular lock. Without it any lock on
+  /// the entry is released, including one taken by another consumer after this
+  /// one's lease expired.
+  Future<bool> release(String queueName, String entryId, {String? lockId}) async {
     try {
+      final key = lockKeyFor(queueName, entryId);
       final deletedCount = await IsarWriteScope.run(_isar, () async {
-        return await _isar.queueLockCollections
+        final held = await _isar.queueLockCollections
             .where()
-            .lockKeyEqualTo(lockKeyFor(queueName, entryId))
-            .deleteAll();
+            .lockKeyEqualTo(key)
+            .findFirst();
+        if (held == null) return 0;
+        if (lockId != null && held.lockId != lockId) return 0;
+        return await _isar.queueLockCollections.delete(held.id) ? 1 : 0;
       });
-      _ownedLocks.remove(lockKeyFor(queueName, entryId));
+      if (lockId == null || _ownedLocks[key] == lockId) {
+        _ownedLocks.remove(key);
+      }
       return deletedCount > 0;
     } catch (e) {
       return false;
     }
+  }
+
+  /// Whether [lockId] is the lock currently held on the entry.
+  ///
+  /// False once the lease has expired, even if the row is still there, because
+  /// an expired lease no longer entitles its holder to anything.
+  Future<bool> isHeldBy(String queueName, String entryId, String lockId) async {
+    final held = await _isar.queueLockCollections
+        .where()
+        .lockKeyEqualTo(lockKeyFor(queueName, entryId))
+        .filter()
+        .expiresAtGreaterThan(DateTime.now())
+        .findFirst();
+    return held != null && held.lockId == lockId;
   }
 
   /// Checks if an entry is currently locked
