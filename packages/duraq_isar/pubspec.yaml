@@ -23,8 +23,15 @@ dev_dependencies:
   isar_generator: ^3.1.0+1
   build_runner: ^2.4.7
 
-# Worked against the duraq in this repository rather than a published one.
-# Removed by nothing: pub ignores overrides when resolving for a consumer.
+# Development against the duraq in this repository rather than the published
+# one, so that a change to the shared StorageInterface is caught by this
+# package's tests before it is released rather than after. Consumers never see
+# this: pub honours overrides only in the root package.
+#
+# It is removed for publishing, and this package is run against the published
+# duraq once before each release — otherwise the only thing ever tested is the
+# working tree next door, which is not what anybody installs.
 dependency_overrides:
   duraq:
     path: ../duraq
+

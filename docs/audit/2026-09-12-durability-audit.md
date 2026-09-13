@@ -24,8 +24,16 @@ same database files the library creates.
 
 ## Remediation status
 
-Updated 13 Sep 2026. Findings carry a **Status** paragraph where work has
-landed; this table is the index.
+Updated 14 Sep 2026. Every finding is closed. The work shipped as
+**duraq 2.0.0** and **duraq_isar 1.0.0** on 13 Sep 2026.
+
+Note on versions: the audit was run against a working tree whose pubspec said
+1.0.1, but pub.dev only ever held 0.0.1 and 1.0.0 — 1.0.1 was never published.
+So 2.0.0 replaces 1.0.0 for every existing user, and carries the two
+pre-remediation commits with it.
+
+Findings carry a **Status** paragraph where work has landed; this table is the
+index.
 
 | ID | Finding | Status |
 | --- | --- | --- |
