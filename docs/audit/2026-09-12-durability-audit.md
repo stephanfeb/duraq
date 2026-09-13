@@ -58,7 +58,7 @@ landed; this table is the index.
 
 Committed on branch `audit-remediation`, branched from `main` at `5315698`, not
 pushed. `7c78742` carries C1 to C6, H1 and H3 to H7; `701069a` carries H2;
-`291bc56` carries the gate (Q4).
+`291bc56` carries the gate (Q4); `1dd3bad` carries M1 to M3.
 The first is a single commit because the changes for different findings
 interleave inside the two storage files, and the intermediate states were
 never committed, so a per-finding split would have meant staging hunks by hand
