@@ -1008,6 +1008,16 @@ Worth remembering as a general shape: after changing an SDK constraint, the
 local analyzer is answering a question about the old language version until the
 package is re-resolved.
 
+With those fixed the gating job is green. The floor job needed one more
+decision: on 3.2 both suites pass in full — 212 and 77 — while that SDK's
+analyzer reports eleven `discarded_futures` infos the current one does not, all
+of them arrow functions that *return* a future rather than discard it. That is
+a lint moving between analyzer versions, and it says nothing about whether the
+package works on 3.2. The floor job now runs `tool/verify.sh --tests-only`: its
+question is whether the advertised SDK builds and passes, and the gating job on
+stable is what holds the lints. Contorting the code to satisfy an older
+analyzer would have been answering the wrong question.
+
 ## Test suite and process (Q1–Q6)
 
 | ID | Severity | Finding |

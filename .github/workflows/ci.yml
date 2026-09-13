@@ -32,12 +32,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Builds on the floor both pubspecs advertise. Its first run found
-          # that floor was wrong — sqlite3 needs 3.2.0, so the 3.0.0 claim
-          # could never be satisfied — which is the whole point of running it.
+          # Builds and runs on the floor both pubspecs advertise. Its first
+          # run found that floor was wrong — sqlite3 needs 3.2.0, so the 3.0.0
+          # claim could never be satisfied — which is the whole point of it.
+          #
+          # Tests only: lint rules move between analyzer versions, and 3.2's
+          # analyzer flags arrow functions that return a future as discarding
+          # it, which says nothing about whether the package works on 3.2. The
+          # gating job holds the lints.
           - name: oldest supported SDK
             sdk: '3.2'
-            command: tool/verify.sh
+            command: tool/verify.sh --tests-only
           # The suites lean on real databases and wall-clock waits (finding Q6),
           # so one green run is weaker evidence than it looks. Repeating them
           # surfaces the flakes that only appear under load.
