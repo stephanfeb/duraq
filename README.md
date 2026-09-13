@@ -35,6 +35,26 @@ what a user will actually install rather than the working tree next door.
 Restore the override afterwards — without it, a change to the shared
 `StorageInterface` would not reach this package's tests until it was published.
 
+The order is not just a preference when the release raises `duraq`'s major
+version. `duraq_isar`'s constraint then names a version that does not exist yet,
+so with the override removed `dart pub get` cannot resolve at all until `duraq`
+is live. The sequence that works:
+
+```bash
+tool/verify.sh                                  # both packages, override in place
+(cd packages/duraq && dart pub publish)         # first, and wait for it to land
+
+# now the constraint can resolve
+cd packages/duraq_isar
+# comment out the dependency_overrides block
+dart pub get && dart test                       # against the published duraq
+dart pub publish
+# restore the override, then:
+dart pub get
+
+git tag duraq-vX.Y.Z && git tag duraq_isar-vX.Y.Z && git push --tags
+```
+
 ## Audit
 
 `docs/audit/` holds the durability audit this codebase was remediated against,
