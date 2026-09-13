@@ -57,8 +57,8 @@ landed; this table is the index.
 | M14 | Durability is one notch below what the name suggests | Fixed (default unchanged, now sayable) |
 | M12 | Isar is a hard dependency for everyone | Fixed (split into `duraq_isar`) |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
-| Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
-| Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
+| Q2 | Coverage thinnest where the risk is | Fixed: 48.7% to 88.4%, and the two least-covered files are now among the best |
+| Q3 | The isolation test cannot fail | Fixed: both the isolation and durability steps now assert something that can fail |
 | Q4 | No CI, no lint configuration | Fixed |
 | Q5 | Untested behaviours are the ones that fail | Mostly closed; TTL of an in-flight entry and dead-letter lock release are still untested |
 | Q6 | Tests lean on real databases and wall-clock waits | Partly: six flakes found and fixed, two of which were real defects rather than bad tests. `tool/verify.sh --flake` hunts for more. The suites still use real databases and real elapsed time |
@@ -1090,7 +1090,56 @@ The format check is deliberately **not** in the gate. Dart 3.11 formats in the
 tall style, which rewrites 35 of the 46 source files, and restyling a published
 package is a decision for its owner rather than a side effect of adding CI.
 
-Line coverage by file, 84 tests, generated code excluded:
+### Status: Q2 and Q3 fixed
+
+**Q2.** Re-measured across both packages, generated code excluded:
+**88.4%, 1,234 of 1,396 lines**, against 48.7% and 618 of 1,268 at the audit.
+The suite went from 84 tests to 298.
+
+The shape matters more than the total. The audit's complaint was that coverage
+was thinnest exactly where the risk was, and those files have moved the most:
+
+| File | At the audit | Now |
+| --- | --- | --- |
+| `isar_lock.dart` | 25.9% | 74.6% |
+| `isar_storage.dart` | 28.5% | 83.9% |
+| `queue_entry.dart` | 48.5% | 91.3% |
+| `sqlite_storage.dart` | 68.5% | 88.3% |
+| `queue.dart` | 70.3% | 92.1% |
+| `health_check.dart` | 84.6% | 89.5% |
+
+The measurement then found something worth fixing rather than just reporting.
+Two files sat at **0%**: `storage_interface.dart` and `retry_policy.dart`.
+Everything in them that a built-in backend overrides is covered through that
+backend, so what was left was precisely the code shipped for *somebody else's*
+implementation — the default `countReady`, the default `runMaintenance`, and
+`shouldMoveToDeadLetter`. All documented, all shipped, none ever executed.
+`custom_backend_test.dart` now exercises them through a minimal backend that
+`extends` the interface, which is the path those defaults exist for. That took
+the total to 88.4% and left no file at zero.
+
+**Q3.** The isolation step asserted `futures.length == 2` on a `Future.wait` of
+two futures. It cannot fail, and it passed throughout the period when
+overlapping transactions were rolling back each other's committed rows. It now
+asserts both transactions' rows are present, which is the property C1 broke.
+
+The durability step reopened the file in the same process. It now writes a
+small program to a temp directory and runs it as a **separate OS process**,
+which opens the database and reports what it can read. Durability is about what
+survives this process ending, so the check has to come from outside it.
+
+Both were verified to discriminate, which is the entire point of the finding: an
+id that was never stored fails the isolation assertion, and pointing the reader
+at a different database file fails the durability one. The old assertion could
+not be made to fail by any change to the code under test.
+
+One detail worth keeping: the child process writes its answer to a file rather
+than stdout, because the Dart toolchain prints "Running build hooks..." there
+and it was being parsed as part of the number.
+
+
+Line coverage by file **at the time of the audit**, 84 tests, generated code
+excluded. See the Q2 status above for what these are now:
 
 | File | Covered | Lines |
 | --- | --- | --- |

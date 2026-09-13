@@ -1010,6 +1010,10 @@ The storage contract is described once, in `test/support/`, and run against both
 backends: the suites here supply the SQLite opener and `duraq_isar` supplies the
 Isar one, so neither backend can quietly drift from the other.
 
+Writing a backend of your own? `test/custom_backend_test.dart` is the worked
+example: the smallest class that satisfies `StorageInterface`, and the
+behaviour it gets for free by extending rather than implementing it.
+
 ## License
 
 MIT

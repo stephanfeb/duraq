@@ -9,10 +9,37 @@ void main() {
     late String dbPath;
     late Directory tempDir;
 
+    /// A program that opens the database and prints how many rows it holds.
+    ///
+    /// Durability is about what survives this process ending, so the check has
+    /// to come from outside it.
+    late String readerScript;
+
+    /// This package's resolved dependencies, so the child can import duraq.
+    final packageConfig =
+        path.join(Directory.current.path, '.dart_tool', 'package_config.json');
+
     setUp(() {
       tempDir = Directory.systemTemp.createTempSync('duraq_test_');
       dbPath = path.join(tempDir.path, 'duraq_test.db');
       storage = SQLiteStorage(dbPath: dbPath);
+
+      readerScript = path.join(tempDir.path, 'read_back.dart');
+      // Writes to a file rather than stdout: the Dart toolchain prints its own
+      // lines there ("Running build hooks..."), which would end up parsed as
+      // part of the answer.
+      File(readerScript).writeAsStringSync('''
+import 'dart:io';
+
+import 'package:duraq/duraq.dart';
+
+Future<void> main(List<String> args) async {
+  final storage = SQLiteStorage(dbPath: args[0]);
+  final entries = await storage.retrieveAll('test-queue');
+  File(args[1]).writeAsStringSync('\${entries.length}');
+  storage.dispose();
+}
+''');
     });
 
     tearDown(() {
@@ -159,14 +186,37 @@ void main() {
         }),
       ]);
 
-      // Verify all transactions completed
-      expect(futures.length, equals(2));
+      // Both transactions' work must be there in full. Asserting
+      // `futures.length` proved nothing: Future.wait on two futures returns
+      // two results whatever the database did, so this passed throughout the
+      // period when overlapping transactions rolled back each other's
+      // committed rows (finding C1).
+      expect(futures, hasLength(2));
+      final ids = (await storage.retrieveAll('test-queue'))
+          .map((entry) => entry.id)
+          .toSet();
+      expect(ids, containsAll(<String>['id2', 'id3']),
+          reason: 'neither transaction may discard the other\'s work');
 
-      // Durability (basic test)
-      final countBeforeRestart = await storage.count('test-queue');
+      // Durability: the rows have to be in the file, not just in this
+      // process's memory. Reopening through SQLiteStorage here would prove
+      // little — the same process, and much of it the same cache — so a
+      // separate OS process reads the file back.
+      final expected = (await storage.retrieveAll('test-queue')).length;
       storage.dispose();
+
+      final answerFile = path.join(tempDir.path, 'count.txt');
+      final reader = await Process.run(
+        Platform.resolvedExecutable,
+        ['run', '--packages=$packageConfig', readerScript, dbPath, answerFile],
+      );
+      expect(reader.exitCode, isZero,
+          reason: 'reader process failed: ${reader.stderr}');
+      expect(int.parse(File(answerFile).readAsStringSync().trim()),
+          equals(expected),
+          reason: 'every committed row should be readable by another process');
+
       storage = SQLiteStorage(dbPath: dbPath);
-      expect(await storage.count('test-queue'), equals(countBeforeRestart));
     });
 
     test('throws on invalid transaction operations', () async {
