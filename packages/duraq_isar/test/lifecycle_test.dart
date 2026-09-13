@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:duraq/duraq.dart';
 import 'package:duraq_isar/duraq_isar.dart';
-import 'package:isar/isar.dart';
 import 'package:test/test.dart';
 
 import 'support/isar_backend.dart';
@@ -36,11 +35,7 @@ void main() {
 
     test('an Isar storage closes through the interface', () async {
       await ensureIsarCore();
-      final isar = await Isar.open(
-        IsarStorage.requiredSchemas,
-        directory: tempDir.path,
-        name: 'lifecycle_test',
-      );
+      final isar = await openTestIsar(directory: tempDir.path, name: 'lifecycle_test');
       addTearDown(isar.close);
 
       final storage = IsarStorage(isar);

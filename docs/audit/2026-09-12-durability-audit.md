@@ -969,6 +969,32 @@ Worth stating plainly, since it is the argument for the gate: this one was
 caught by the hook, on the way out, on a machine busy enough to expose it. A
 green local run had passed five times in a row beforehand.
 
+### Status: what CI found on its first real run
+
+The gate ran on a machine that was not this one, for the first time in the
+package's history. It failed, and both failures were real.
+
+**The Isar suites died with a bus error.** `si_signo=Bus error(7),
+si_code=BUS_ADRERR(2)`, a core dump, no catchable error. Isar memory-maps a file
+of `maxSizeMiB`, default 512 MiB, and only the shared opener was capping it —
+the six test files that open Isar directly were each mapping half a gigabyte. On
+a Linux runner the temporary directory is backed by RAM, so several of those at
+once exhaust it and a write into the mapping dies with SIGBUS. macOS backs
+`/tmp` with disk, which is why every local run passed. Every `Isar.open` in the
+tests now goes through one helper that caps the mapping at 32 MiB.
+
+**The advertised SDK floor was false.** The advisory job builds on the oldest
+SDK the pubspecs claim, and reported: `Because duraq depends on sqlite3 >=2.2.0
+which requires SDK version >=3.2.0 <4.0.0, version solving failed.` The floor
+had been `>=3.0.0` and nothing could ever have satisfied it — raising the
+sqlite3 constraint to 2.2.0 for `updatedRows` had silently raised the real
+floor too. Both pubspecs now say `>=3.2.0`, and the job builds on 3.2.
+
+Neither of these was reachable from a developer machine. The first needed a
+different operating system, the second needed somebody to actually try the
+version being advertised. That is the argument for the gate running somewhere
+other than where the code is written, and it paid for itself on the first push.
+
 ## Test suite and process (Q1–Q6)
 
 | ID | Severity | Finding |

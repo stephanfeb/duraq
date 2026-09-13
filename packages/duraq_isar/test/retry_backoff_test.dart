@@ -18,11 +18,7 @@ void main() {
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_backoff_isar_').path;
       await ensureIsarCore();
-      isar = await Isar.open(
-        IsarStorage.requiredSchemas,
-        directory: tempDir,
-        name: 'backoff_test',
-      );
+      isar = await openTestIsar(directory: tempDir, name: 'backoff_test');
       storage = IsarStorage(isar);
     });
 

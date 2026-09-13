@@ -32,11 +32,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Both pubspecs claim to support Dart 3.0 and up. Nothing has ever
-          # built on 3.0, so this reports whether the claim is true rather than
-          # gating on it.
+          # Builds on the floor both pubspecs advertise. Its first run found
+          # that floor was wrong — sqlite3 needs 3.2.0, so the 3.0.0 claim
+          # could never be satisfied — which is the whole point of running it.
           - name: oldest supported SDK
-            sdk: '3.0'
+            sdk: '3.2'
             command: tool/verify.sh
           # The suites lean on real databases and wall-clock waits (finding Q6),
           # so one green run is weaker evidence than it looks. Repeating them

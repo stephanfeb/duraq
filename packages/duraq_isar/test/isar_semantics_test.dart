@@ -21,11 +21,7 @@ void main() {
     setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('duraq_isar_sem_').path;
       await ensureIsarCore();
-      isar = await Isar.open(
-        IsarStorage.requiredSchemas,
-        directory: tempDir,
-        name: 'semantics_test',
-      );
+      isar = await openTestIsar(directory: tempDir, name: 'semantics_test');
       storage = IsarStorage(isar);
     });
 

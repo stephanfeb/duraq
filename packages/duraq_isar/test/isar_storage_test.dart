@@ -20,11 +20,7 @@ void main() {
       await ensureIsarCore();
       
       // Create Isar instance with required schemas
-      isar = await Isar.open(
-        IsarStorage.requiredSchemas,
-        directory: tempDir,
-        name: 'test_queue',
-      );
+      isar = await openTestIsar(directory: tempDir, name: 'test_queue');
       
       // Create storage with external Isar instance
       storage = IsarStorage(isar);

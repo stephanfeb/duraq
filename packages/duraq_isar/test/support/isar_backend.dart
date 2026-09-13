@@ -21,14 +21,7 @@ StorageOpener isarBackend(String name) =>
 Future<StorageUnderTest> _openIsar(String name, Duration? leaseDuration) async {
   final dir = Directory.systemTemp.createTempSync('duraq_suite_isar_');
   await ensureIsarCore();
-  final isar = await Isar.open(
-    IsarStorage.requiredSchemas,
-    directory: dir.path,
-    name: name,
-    // Far more than a test needs, and small enough that several suites running
-    // at once do not reserve gigabytes between them.
-    maxSizeMiB: 64,
-  );
+  final isar = await openTestIsar(directory: dir.path, name: name);
   final storage = IsarStorage(
     isar,
     leaseDuration: leaseDuration ?? IsarStorage.defaultLockDuration,
@@ -46,6 +39,36 @@ Future<StorageUnderTest> _openIsar(String name, Duration? leaseDuration) async {
     },
   );
 }
+
+/// Opens an Isar instance sized for a test.
+///
+/// Every `Isar.open` in these tests goes through here for two reasons, both
+/// learned the hard way.
+///
+/// [name] must be unique per test file. Isar keeps one instance per name for
+/// the whole process, so two files running at the same time under one name get
+/// the same database and trip over each other's entries; a unique name per call
+/// instead leaves every database of the run open at once. One name per file,
+/// reused as that file opens and closes it, is the shape that works.
+///
+/// [maxSizeMiB] is small on purpose. Isar memory-maps a file of this size, and
+/// the default is 512 MiB. On a machine where the temporary directory is backed
+/// by RAM — which a Linux CI runner's `/tmp` is, and macOS's is not — several
+/// of those at once exhaust it, and writing into the mapping dies with
+/// `SIGBUS` / `BUS_ADRERR` rather than an error anything can catch. That is how
+/// the first CI run of this repository failed, having passed locally every
+/// time.
+Future<Isar> openTestIsar({
+  required String directory,
+  required String name,
+  int maxSizeMiB = 32,
+}) =>
+    Isar.open(
+      IsarStorage.requiredSchemas,
+      directory: directory,
+      name: name,
+      maxSizeMiB: maxSizeMiB,
+    );
 
 /// Prepares the Isar native core for a test suite.
 ///

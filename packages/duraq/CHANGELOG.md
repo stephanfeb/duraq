@@ -124,6 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
+- The declared SDK floor moves from `>=3.0.0` to `>=3.2.0`. This corrects a
+  claim rather than dropping support: `sqlite3` 2.2.0, the oldest this package
+  allows, itself requires 3.2.0, so `duraq` could never have resolved on 3.0 or
+  3.1. Found by the CI job that builds on the advertised floor.
 - **The Isar backend moved to its own package, `duraq_isar`.** A project using
   only SQLite no longer resolves `isar`, its generated code, or its version
   constraint — which was the point: `isar` is pinned to 3.1.0+1, whose generated

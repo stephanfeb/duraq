@@ -4,7 +4,10 @@ version: 1.0.1
 repository: https://github.com/stephanfeb/duraq
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  # 3.2.0, not 3.0.0: sqlite3 2.2.0 — the oldest this package allows —
+  # itself requires >=3.2.0, so the old claim could never be satisfied.
+  # The CI job that builds on the advertised floor is what found it.
+  sdk: '>=3.2.0 <4.0.0'
 
 dependencies:
   sqlite3: '>=2.2.0 <4.0.0' # 2.2.0 is where updatedRows replaced getUpdatedRows

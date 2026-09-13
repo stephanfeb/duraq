@@ -26,12 +26,16 @@ void main() {
       }
     });
 
+    // Takes its own schema list, so it cannot use openTestIsar — one test here
+    // opens with the schema set that shipped before the version collection
+    // existed. The size cap is the same, and for the same reason.
     Future<Isar> open(String name,
             {List<CollectionSchema<dynamic>>? schemas}) async =>
         Isar.open(
           schemas ?? IsarStorage.requiredSchemas,
           directory: tempDir.path,
           name: name,
+          maxSizeMiB: 32,
         );
 
     /// The schema set that shipped before the version collection existed.
