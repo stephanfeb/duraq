@@ -159,7 +159,7 @@ class Queue<T> {
   /// Handles a failed entry according to retry policy
   Future<void> _handleFailure(QueueEntry<dynamic> entry, String error) async {
     final attempts = entry.attempts + 1;
-    if (_retryPolicy == null || !_retryPolicy!.shouldRetry(attempts, error)) {
+    if (_retryPolicy == null || !_retryPolicy.shouldRetry(attempts, error)) {
       if (_retryPolicy?.shouldMoveToDeadLetter(attempts, error) ?? true) {
         await _storage.updateEntryStatus(
           name,
@@ -182,7 +182,7 @@ class Queue<T> {
       return;
     }
 
-    final retryDelay = _retryPolicy!.getRetryDelay(attempts);
+    final retryDelay = _retryPolicy.getRetryDelay(attempts);
     final nextRetry = DateTime.now().add(retryDelay);
 
     await _storage.updateEntryStatus(

@@ -995,6 +995,19 @@ different operating system, the second needed somebody to actually try the
 version being advertised. That is the argument for the gate running somewhere
 other than where the code is written, and it paid for itself on the first push.
 
+The next run found a third, which the second had caused. Raising the SDK floor
+to 3.2.0 raises the package's *language version* with it, and 3.2 is where Dart
+began promoting private final fields. Two `_retryPolicy!` assertions in
+`queue.dart` were therefore no longer needed, and the analyzer says so — but
+only once the package has been re-resolved, because the language version is
+recorded in `.dart_tool/package_config.json`. CI resolves from nothing every
+run and saw it immediately; this machine kept saying the opposite until
+`dart pub get` was run again.
+
+Worth remembering as a general shape: after changing an SDK constraint, the
+local analyzer is answering a question about the old language version until the
+package is re-resolved.
+
 ## Test suite and process (Q1–Q6)
 
 | ID | Severity | Finding |
