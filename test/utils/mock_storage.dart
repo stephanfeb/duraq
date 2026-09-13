@@ -135,19 +135,34 @@ class MockStorage implements StorageInterface {
     String? leaseId,
   }) async {
     final queue = _queues[queueName];
-    if (queue != null) {
-      final index = queue.indexWhere((entry) => entry.id == entryId);
-      if (index != -1) {
-        final entry = queue[index];
-        queue[index] = entry.copyWith(
-          status: status,
-          errorMessage: errorMessage,
-          nextRetryAt: nextRetryAt,
-          lastUpdatedAt: DateTime.now(),
-          attempts: attempts ?? entry.attempts,
-        );
-      }
+    final index = queue?.indexWhere((entry) => entry.id == entryId) ?? -1;
+    if (queue == null || index == -1) {
+      // The real backends report a status change for an id they do not hold,
+      // rather than succeeding silently.
+      throw EntryNotFoundException(queueName, entryId);
     }
+
+    final entry = queue[index];
+
+    // Pending with no retry time means available now; every other field the
+    // caller left out keeps its stored value. Built directly rather than
+    // through copyWith, which cannot write a null.
+    final clearRetry = nextRetryAt == null && status == EntryStatus.pending;
+
+    queue[index] = QueueEntry<dynamic>(
+      id: entry.id,
+      data: entry.data,
+      createdAt: entry.createdAt,
+      lastUpdatedAt: DateTime.now(),
+      expiresAt: entry.expiresAt,
+      scheduledFor: entry.scheduledFor,
+      attempts: attempts ?? entry.attempts,
+      priority: entry.priority,
+      status: status,
+      errorMessage: errorMessage ?? entry.errorMessage,
+      nextRetryAt: clearRetry ? null : (nextRetryAt ?? entry.nextRetryAt),
+      leaseId: entry.leaseId,
+    );
   }
 
   @override

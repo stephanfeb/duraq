@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:isar/isar.dart';
+import 'package:uuid/uuid.dart';
 import 'isar_models.dart';
 import 'isar_write_scope.dart';
 
@@ -14,6 +15,8 @@ class IsarQueueLock {
   /// another consumer.
   final Map<String, String> _ownedLocks = {};
 
+  static const _uuid = Uuid();
+
   IsarQueueLock(this._isar);
 
   /// Attempts to acquire a lock on an entry
@@ -24,7 +27,13 @@ class IsarQueueLock {
     Duration lockDuration = const Duration(minutes: 5),
   }) async {
     final now = DateTime.now();
-    final lockId = '${queueName}_${entryId}_${now.millisecondsSinceEpoch}';
+    // The id has to be unique per acquisition, not per millisecond. Built from
+    // the clock alone, two claims of the same entry inside one millisecond got
+    // the same id, and a consumer holding the older one was then accepted as
+    // the current holder — which is exactly what the ownership check exists to
+    // prevent.
+    final lockId = '${queueName}_${entryId}_${now.millisecondsSinceEpoch}_'
+        '${_uuid.v4()}';
     final expiresAt = now.add(lockDuration);
 
     try {
@@ -57,9 +66,16 @@ class IsarQueueLock {
         _ownedLocks[lockKeyFor(queueName, entryId)] = lockId;
         return lockId;
       });
-    } catch (e) {
-      // If operation fails, the entry is already locked
-      return null;
+    } on IsarError catch (e) {
+      // A unique index violation is another holder winning the race to this
+      // entry, which is the answer this method exists to give. Every other
+      // Isar failure is a storage problem, and reporting it as contention sent
+      // the caller on to the next candidate and made a failing database look
+      // like an empty queue.
+      if (e.message.contains('Unique index violated')) {
+        return null;
+      }
+      rethrow;
     }
   }
 

@@ -854,44 +854,52 @@ class SQLiteStorage implements StorageInterface {
       return;
     }
 
-    // Release the lock if the entry is no longer being processed
-    if (status == EntryStatus.completed || status == EntryStatus.failed || status == EntryStatus.pending) {
+    // Release the lock unless the entry is still being worked on. Anything
+    // else — completed, failed, pending, dead lettered, expired — is finished
+    // with its claim, and holding the lease past that point kept the entry
+    // unclaimable for the rest of its duration. A dead letter retried inside
+    // that window was silently not delivered.
+    if (status != EntryStatus.processing) {
       await _lock.release(queueName, entryId, lockId: leaseId);
     }
 
+    // Only the fields the caller named. Writing error_message and
+    // next_retry_at on every update meant completing an entry wiped the error
+    // that explained its last failure, and any caller that set a status
+    // without restating the retry time cleared it.
+    final assignments = <String>['status = ?', 'updated_at = ?'];
+    final values = <Object?>[status.name, DateTime.now().millisecondsSinceEpoch];
+
+    if (errorMessage != null) {
+      assignments.add('error_message = ?');
+      values.add(errorMessage);
+    }
+
+    if (nextRetryAt != null) {
+      assignments.add('next_retry_at = ?');
+      values.add(nextRetryAt.millisecondsSinceEpoch);
+    } else if (status == EntryStatus.pending) {
+      // Pending with no retry time means available now. Keeping an old
+      // backoff here would withhold an entry the caller just made ready.
+      assignments.add('next_retry_at = NULL');
+    }
+
     if (attempts != null) {
-      _db.execute(
-        '''
-        UPDATE queue_entries
-        SET status = ?, updated_at = ?, error_message = ?, next_retry_at = ?, attempts = ?
-        WHERE queue_name = ? AND id = ?
-        ''',
-        [
-          status.name,
-          DateTime.now().millisecondsSinceEpoch,
-          errorMessage,
-          nextRetryAt?.millisecondsSinceEpoch,
-          attempts,
-          queueName,
-          entryId,
-        ],
-      );
-    } else {
-      _db.execute(
-        '''
-        UPDATE queue_entries
-        SET status = ?, updated_at = ?, error_message = ?, next_retry_at = ?
-        WHERE queue_name = ? AND id = ?
-        ''',
-        [
-          status.name,
-          DateTime.now().millisecondsSinceEpoch,
-          errorMessage,
-          nextRetryAt?.millisecondsSinceEpoch,
-          queueName,
-          entryId,
-        ],
-      );
+      assignments.add('attempts = ?');
+      values.add(attempts);
+    }
+
+    _db.execute(
+      '''
+      UPDATE queue_entries
+      SET ${assignments.join(', ')}
+      WHERE queue_name = ? AND id = ?
+      ''',
+      [...values, queueName, entryId],
+    );
+
+    if (_db.updatedRows == 0) {
+      throw EntryNotFoundException(queueName, entryId);
     }
   }
 

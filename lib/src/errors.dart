@@ -145,3 +145,29 @@ class PayloadCodecException extends DuraQException {
   @override
   String toString() => 'PayloadCodecException: $message';
 }
+
+/// Thrown when an operation names an entry the storage does not hold.
+///
+/// A status update for an id that is not there used to report success, so a
+/// typo, a stale id, or an entry already removed by a retention pass all looked
+/// exactly like work completing normally.
+///
+/// This is not raised when a change is discarded because the caller's lease has
+/// expired: the entry exists, and someone else holds the claim on it. That case
+/// stays silent by design — see `updateEntryStatus`.
+class EntryNotFoundException extends DuraQException {
+  /// The queue the entry was looked for in.
+  final String queueName;
+
+  /// The id that was not found.
+  final String entryId;
+
+  EntryNotFoundException(this.queueName, this.entryId)
+      : super(
+          'Queue "$queueName" holds no entry with id "$entryId". It may have '
+          'been removed by a retention pass, or the id may be wrong.',
+        );
+
+  @override
+  String toString() => 'EntryNotFoundException: $message';
+}

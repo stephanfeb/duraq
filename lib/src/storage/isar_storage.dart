@@ -566,27 +566,45 @@ class IsarStorage implements StorageInterface {
         return;
       }
 
-      // Release the lock if the entry is no longer being processed. This runs
-      // in the same transaction as the status change, so a failure cannot
-      // leave one applied without the other.
-      if (status == EntryStatus.completed ||
-          status == EntryStatus.failed ||
-          status == EntryStatus.pending) {
+      // Release the lock unless the entry is still being worked on. Anything
+      // else — completed, failed, pending, dead lettered, expired — is
+      // finished with its claim, and holding the lease past that point kept
+      // the entry unclaimable for the rest of its duration. This runs in the
+      // same transaction as the status change, so a failure cannot leave one
+      // applied without the other.
+      if (status != EntryStatus.processing) {
         await _lock.release(queueName, entryId, lockId: leaseId);
       }
 
       final entry = await _findEntry(queueName, entryId);
-
-      if (entry != null) {
-        entry.status = status;
-        entry.lastUpdatedAt = DateTime.now();
-        entry.errorMessage = errorMessage;
-        entry.nextRetryAt = nextRetryAt;
-        if (attempts != null) {
-          entry.attempts = attempts;
-        }
-        await _isar.queueEntryCollections.put(entry);
+      if (entry == null) {
+        throw EntryNotFoundException(queueName, entryId);
       }
+
+      entry.status = status;
+      entry.lastUpdatedAt = DateTime.now();
+
+      // Only the fields the caller named. Assigning errorMessage and
+      // nextRetryAt on every update meant completing an entry wiped the error
+      // that explained its last failure, and any caller that set a status
+      // without restating the retry time cleared it.
+      if (errorMessage != null) {
+        entry.errorMessage = errorMessage;
+      }
+
+      if (nextRetryAt != null) {
+        entry.nextRetryAt = nextRetryAt;
+      } else if (status == EntryStatus.pending) {
+        // Pending with no retry time means available now. Keeping an old
+        // backoff here would withhold an entry the caller just made ready.
+        entry.nextRetryAt = null;
+      }
+
+      if (attempts != null) {
+        entry.attempts = attempts;
+      }
+
+      await _isar.queueEntryCollections.put(entry);
     });
   }
 

@@ -1,4 +1,5 @@
 import 'package:sqlite3/sqlite3.dart';
+import 'package:uuid/uuid.dart';
 
 /// Represents a lock on a queue entry
 class QueueLock {
@@ -14,6 +15,8 @@ class QueueLock {
   /// here, which is what keeps [releaseAllLocks] from freeing entries that are
   /// still being processed elsewhere.
   final Map<String, String> _ownedLocks = {};
+
+  static const _uuid = Uuid();
 
   String _ownerKey(String queueName, String entryId) => '$queueName\u0000$entryId';
 
@@ -50,7 +53,13 @@ class QueueLock {
     Duration lockDuration = const Duration(minutes: 5),
   }) async {
     final now = DateTime.now();
-    final lockId = '${queueName}_${entryId}_${now.millisecondsSinceEpoch}';
+    // The id has to be unique per acquisition, not per millisecond. Built from
+    // the clock alone, two claims of the same entry inside one millisecond got
+    // the same id, and a consumer holding the older one was then accepted as
+    // the current holder — which is exactly what the ownership check exists to
+    // prevent.
+    final lockId = '${queueName}_${entryId}_${now.millisecondsSinceEpoch}_'
+        '${_uuid.v4()}';
     final expiresAt = now.add(lockDuration);
 
     // First, clean up expired locks
@@ -77,11 +86,25 @@ class QueueLock {
       } finally {
         stmt.dispose();
       }
-    } catch (e) {
-      // If insert fails, the entry is already locked
-      return null;
+    } on SqliteException catch (e) {
+      // A primary key conflict is the entry already being locked, which is the
+      // answer this method exists to give. Everything else — a broken schema, a
+      // full disk, a database that went away — is a storage failure, and
+      // reporting it as contention sent the caller on to the next candidate
+      // and made a failing database look like an empty queue.
+      if (e.extendedResultCode == _constraintPrimaryKey ||
+          e.extendedResultCode == _constraintUnique) {
+        return null;
+      }
+      rethrow;
     }
   }
+
+  /// SQLITE_CONSTRAINT_PRIMARYKEY: another holder has this entry.
+  static const int _constraintPrimaryKey = 1555;
+
+  /// SQLITE_CONSTRAINT_UNIQUE, for a lock table indexed differently.
+  static const int _constraintUnique = 2067;
 
   /// Releases a lock on an entry.
   ///

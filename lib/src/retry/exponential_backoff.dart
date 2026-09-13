@@ -32,19 +32,33 @@ class ExponentialBackoff implements RetryPolicy {
     return attempts < maxAttempts;
   }
 
+  /// The delay before attempt [attempts], never longer than [maxDelay].
+  ///
+  /// The delay doubles per attempt until it reaches [maxDelay], then stays
+  /// there. Jitter of up to 25% is taken off whatever that works out to,
+  /// including at the ceiling, so consumers that failed together do not all
+  /// come back at the same instant.
   @override
   Duration getRetryDelay(int attempts) {
-    // Calculate exponential delay: baseDelay * 2^attempt
-    final exponentialDelay = baseDelay.inMilliseconds * math.pow(2, attempts);
-    
-    // Add jitter: random value between 75% and 100% of calculated delay
-    final jitterMultiplier = 0.75 + (_random.nextDouble() * 0.25);
-    final delayWithJitter = (exponentialDelay * jitterMultiplier).round();
-    
-    // Ensure delay doesn't exceed maxDelay
-    return Duration(
-      milliseconds: math.min(delayWithJitter, maxDelay.inMilliseconds),
-    );
+    final baseMs = baseDelay.inMilliseconds;
+    final capMs = maxDelay.inMilliseconds;
+    if (baseMs <= 0 || capMs <= 0) return Duration.zero;
+
+    // Deliberately double arithmetic. `2^attempts` as an int overflows a
+    // 64-bit int at attempt 63 and wraps, which the cap below could not catch
+    // because it was comparing against the wrapped value: attempt 58 asked for
+    // a delay of 60,000 years, and from attempt 64 every delay came out zero,
+    // turning backoff into a tight retry loop. Doubles saturate to infinity
+    // rather than wrapping, and `min` handles infinity correctly.
+    final exponentialMs =
+        baseMs * math.pow(2.0, attempts < 0 ? 0 : attempts).toDouble();
+    final cappedMs = math.min(exponentialMs, capMs.toDouble());
+
+    // Jitter applies after the cap. Applying it before, as this did, meant
+    // every attempt past the ceiling asked for exactly maxDelay with no
+    // spread at all — the point in the backoff where spread matters most.
+    final jitter = 0.75 + (_random.nextDouble() * 0.25);
+    return Duration(milliseconds: (cappedMs * jitter).round());
   }
 
   @override

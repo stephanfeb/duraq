@@ -8,6 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `ExponentialBackoff.getRetryDelay()` no longer overflows. The delay was
+  `baseDelay.inMilliseconds * pow(2, attempts)` in integer arithmetic, which
+  wraps a 64-bit int at attempt 63. `maxDelay` could not catch the wrapped
+  value, so attempt 58 scheduled a retry roughly 60,000 years out, and from
+  attempt 64 every delay came out zero — backoff became a tight retry loop.
+  The delay is now computed in floating point and capped before jitter, so it
+  is never negative, never zero, and never above `maxDelay` at any attempt
+  count.
+- Jitter now applies after the cap rather than before it. Previously every
+  attempt at or past the ceiling returned exactly `maxDelay` with no spread at
+  all, which is the point in a backoff where spreading retries matters most.
+  Delays at the ceiling now land between 75% and 100% of `maxDelay`.
+- `updateEntryStatus()` no longer clears fields the caller did not mention.
+  Every update wrote `error_message` and `next_retry_at`, using null when they
+  were not supplied, so completing an entry erased the error that explained its
+  last failure and any status change dropped a pending retry time. Fields left
+  out now keep their stored values, with one deliberate exception: moving an
+  entry to `pending` without a retry time clears the backoff, because that is
+  what making an entry available again means.
+- Dead lettered and expired entries now release their claim. The lock was
+  released for `completed`, `failed` and `pending` only, so an entry kept its
+  lease for the rest of its duration after the work was over. The visible
+  symptom was `retryDeadLetter()` appearing to do nothing: the entry went back
+  to pending still locked by the claim it died under, and the scan skipped it
+  until the lease ran out.
+- Lock ids are now unique per acquisition. They were built from the queue name,
+  the entry id and the clock in milliseconds, so two claims of the same entry
+  inside one millisecond produced the same id, and a consumer holding the older
+  one was accepted as the current holder — defeating the ownership check that
+  exists to stop exactly that. Found by a test that flaked once in three runs.
+- Taking a lock no longer reports every failure as contention. Any exception
+  during the insert answered "the entry is already locked", so a broken schema,
+  a failing disk, or a database that went away moved the scan on to the next
+  candidate and made a failing storage look like an empty queue. Only a real
+  conflict — a primary key collision on SQLite, a unique index violation on
+  Isar — now means locked; everything else is raised.
 - `dequeue()` now removes the entry it returns. It previously claimed the entry
   and handed back the payload with no way to acknowledge it, leaving the row in
   `processing`; once the lease expired the entry was handed out again, so every
@@ -74,6 +110,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still working on. Each lock manager now tracks and releases only its own.
 
 ### Breaking
+- `updateEntryStatus()` now throws `EntryNotFoundException` when no entry with
+  that id is in the queue. It previously reported success, so a typo, a stale
+  id, or an entry already removed by a retention pass all looked like work
+  completing normally. A change discarded because the caller's lease expired
+  still returns quietly: the entry exists and someone else holds the claim.
 - `StorageInterface.store()` takes a new `onConflict` parameter,
   `updateEntryStatus()` takes a new `leaseId` parameter, and `StorageInterface`
   gained `runMaintenance()`. Custom backends must add all three.

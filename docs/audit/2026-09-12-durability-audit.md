@@ -46,7 +46,11 @@ landed; this table is the index.
 | M1 | `dequeue` does not remove anything | Fixed (now at-most-once by contract) |
 | M2 | Queue manager caches by name and casts | Fixed |
 | M3 | Type safety is nominal | Fixed (`QueueCodec`; JSON is still the storage form) |
-| M5–M14 | Contract, clarity and dead weight | **Open** |
+| M5 | Backoff arithmetic overflows | Fixed |
+| M6 | Status updates clear fields nobody asked them to clear | Fixed (missing id now throws) |
+| M8 | Dead-lettered and expired entries keep their lock | Fixed |
+| M10 | Lock acquisition swallows every error as contention | Fixed |
+| M7, M9, M11–M14 | Contract, clarity and dead weight | **Open** |
 | Q1 | Published version fails its own tests | Fixed, suite is green |
 | Q2 | Coverage thinnest where the risk is | **Open**, not re-measured since |
 | Q3 | The isolation test cannot fail | Partly: real isolation tests exist in `serialization_test.dart`, the vacuous assertion in `transaction_test.dart` remains |
@@ -691,6 +695,65 @@ retry after the codec recovers returns it.
 Not addressed, and not claimed: a payload still round-trips through JSON, so
 `Queue<double>` reading an entry stored as `1` still meets an `int`. The codec
 is the supported way to control that.
+
+### Status: M5, M6, M8 and M10 fixed
+
+**M5** is worse than the finding recorded. Measured across attempt counts with
+`baseDelay` 100 ms and `maxDelay` 30 s: attempt 58 asked for 1,881,667,198,283,816 ms,
+about 60,000 years, with the cap bypassed entirely; from attempt 64 every delay
+came out **zero**, which is not a slow retry but a tight loop. Both are the same
+cause — `pow(2, attempts)` in integer arithmetic wraps a 64-bit int at 63, and
+the cap was comparing against the wrapped value.
+
+The delay is now computed in floating point, where overflow saturates to
+infinity and `min` handles it. A second change came out of writing the test:
+jitter used to be applied *before* the cap, so every attempt at or past the
+ceiling returned exactly `maxDelay` with no spread at all — the point in a
+backoff where spread matters most. Jitter now applies after the cap, so delays
+at the ceiling land between 75% and 100% of it.
+
+**M6** had two halves. Every update wrote `error_message` and `next_retry_at`
+whether or not the caller mentioned them, so completing an entry erased the
+error explaining its last failure — reproduced by failing an entry with
+"disk on fire" and watching it complete with a null error. The update now writes
+only the fields it is given, with one deliberate exception: moving an entry to
+`pending` without a retry time clears the backoff, because leaving a stale one
+would withhold an entry the caller just made ready.
+
+The other half, a wrong id reporting success, now throws
+`EntryNotFoundException`. A change discarded because the caller's lease expired
+still returns quietly — the entry exists and someone else holds the claim — and
+a test pins that distinction.
+
+**M8** had a user-visible symptom the finding did not name: `retryDeadLetter`
+appeared to do nothing. The entry went back to pending still locked by the claim
+it died under, so the candidate scan skipped it for the rest of the lease, five
+minutes by default. The rule is now simply that anything other than `processing`
+releases the claim.
+
+**M10** is narrower than recorded. The catch-all wraps the insert only, so a
+failure in the expired-lock cleanup already propagated. What it did swallow was
+every insert failure: demonstrated with a lock table the insert cannot satisfy,
+where a `NOT NULL` violation was reported as "the entry is already locked". Only
+a genuine conflict — primary key on SQLite, unique index on Isar — now means
+locked, and everything else is raised rather than sending the scan to the next
+candidate and making a broken database look like an empty queue.
+
+**A defect found on the way through, not in the audit.** A new test flaked once
+in three runs: a change made under a lease that should have been stale was
+applied. The cause was not the test. Lock ids were built as
+`queueName_entryId_millisecondsSinceEpoch`, so two claims of the same entry
+inside one millisecond produced *the same id*, and a consumer holding the older
+one passed the ownership check as the current holder — defeating H2 entirely in
+exactly the case it was written for, back-to-back claims. Ids now carry a UUID.
+A loop of 200 back-to-back acquire/release cycles produces 200 distinct ids
+with the fix and collides without it, and the suite has run eight consecutive
+times clean since.
+
+Eleven of the twenty tests in `update_semantics_test.dart` fail against the old
+implementation, symmetrically across both backends. `test/utils/mock_storage.dart`
+was updated to match the contract: it could not clear those fields at all, so
+the mock and the real backends had quietly disagreed about M6 all along.
 
 ## Test suite and process (Q1–Q6)
 

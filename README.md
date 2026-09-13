@@ -525,6 +525,11 @@ await queue.processNext((data) async {
 });
 ```
 
+The delay doubles per attempt until it reaches `maxDelay`, then stays there.
+Up to 25% jitter is taken off whatever that works out to, including at the
+ceiling, so consumers that failed together do not all come back at the same
+instant. The delay never exceeds `maxDelay` at any attempt count.
+
 2. **Custom Retry Policies**
 ```dart
 class CustomRetryPolicy implements RetryPolicy {
