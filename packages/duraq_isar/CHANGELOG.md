@@ -1,5 +1,31 @@
 # Changelog
 
+## [3.0.0] - unreleased
+
+Moves from `isar` 3.1.0+1 to `isar_community` 3.3.2. The original `isar`
+package is unmaintained, and its Android native library is aligned to 4 KB
+pages, which Google Play rejects for apps targeting Android 15 or later.
+
+### Upgrading from 2.0.x
+
+**1. Switch your own Isar dependency too.** `IsarStorage` now takes an
+`isar_community` `Isar`, so the app must use the same package:
+
+```yaml
+dependencies:
+  duraq_isar: ^3.0.0
+  isar_community: ^3.3.2
+  isar_community_flutter_libs: ^3.3.2   # Flutter apps
+dev_dependencies:
+  isar_community_generator: ^3.3.2
+```
+
+and change `import 'package:isar/isar.dart'` to
+`import 'package:isar_community/isar.dart'`, then regenerate your `.g.dart`
+files.
+
+**2. Existing databases.** The collection schemas and their ids are unchanged.
+
 ## [2.0.0] - 2026-09-14
 
 Tracks `duraq` 3.0.0: an entry id now identifies an entry **within its queue**,

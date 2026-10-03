@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:duraq_isar/duraq_isar.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 
 import '../../../duraq/test/support/storage_backend.dart';
 

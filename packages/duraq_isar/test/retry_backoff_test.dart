@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:duraq/duraq.dart';
 import 'package:duraq_isar/duraq_isar.dart';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:test/test.dart';
 
 import '../../duraq/test/support/queue_helpers.dart';

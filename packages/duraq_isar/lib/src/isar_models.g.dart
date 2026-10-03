@@ -58,7 +58,7 @@ const QueueCollectionSchema = CollectionSchema(
   getId: _queueCollectionGetId,
   getLinks: _queueCollectionGetLinks,
   attach: _queueCollectionAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _queueCollectionEstimateSize(
@@ -936,7 +936,7 @@ const QueueEntryCollectionSchema = CollectionSchema(
   getId: _queueEntryCollectionGetId,
   getLinks: _queueEntryCollectionGetLinks,
   attach: _queueEntryCollectionAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _queueEntryCollectionEstimateSize(
@@ -3868,7 +3868,7 @@ const QueueLockCollectionSchema = CollectionSchema(
   getId: _queueLockCollectionGetId,
   getLinks: _queueLockCollectionGetLinks,
   attach: _queueLockCollectionAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _queueLockCollectionEstimateSize(
@@ -5371,7 +5371,7 @@ const QueueMetaCollectionSchema = CollectionSchema(
   getId: _queueMetaCollectionGetId,
   getLinks: _queueMetaCollectionGetLinks,
   attach: _queueMetaCollectionAttach,
-  version: '3.1.0+1',
+  version: '3.3.2',
 );
 
 int _queueMetaCollectionEstimateSize(

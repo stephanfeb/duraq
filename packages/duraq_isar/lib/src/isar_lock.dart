@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 import 'package:uuid/uuid.dart';
 import 'isar_models.dart';
 import 'isar_write_scope.dart';

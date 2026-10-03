@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:isar/isar.dart';
+import 'package:isar_community/isar.dart';
 
 /// Runs write operations inside a single Isar write transaction.
 ///

@@ -1,6 +1,6 @@
 name: duraq_isar
 description: Isar storage backend for DuraQ, the durable Dart queue
-version: 2.0.0
+version: 3.0.0
 repository: https://github.com/stephanfeb/duraq
 
 environment:
@@ -12,7 +12,7 @@ environment:
 dependencies:
   # The two release together: this backend uses APIs added alongside the split.
   duraq: ^3.0.0
-  isar: ^3.1.0+1
+  isar_community: ^3.3.2
   uuid: ^4.0.0
 
 dev_dependencies:
@@ -20,8 +20,8 @@ dev_dependencies:
   test: '>=1.25.0 <2.0.0'
   path: ^1.8.0
   sqlite3: '>=2.2.0 <4.0.0'
-  isar_generator: ^3.1.0+1
-  build_runner: ^2.4.7
+  isar_community_generator: ^3.3.2
+  build_runner: ^2.7.0
 
 # Development against the duraq in this repository rather than the published
 # one, so that a change to the shared StorageInterface is caught by this
