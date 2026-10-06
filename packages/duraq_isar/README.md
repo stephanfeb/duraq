@@ -1,10 +1,10 @@
 # duraq_isar
 
-The [Isar](https://pub.dev/packages/isar) storage backend for
+The [Isar](https://pub.dev/packages/isar_community) storage backend for
 [DuraQ](../duraq), the durable Dart queue.
 
 It lives outside `duraq` so that a project using only the SQLite backend does not
-resolve `isar` and its generated code, and is not held to `isar`'s version
+resolve `isar_community` and its generated code, and is not held to `isar_community`'s version
 constraint.
 
 ## Use
@@ -12,12 +12,14 @@ constraint.
 ```yaml
 dependencies:
   duraq: ^3.0.0
-  duraq_isar: ^2.0.0
+  duraq_isar: ^3.0.0
+  isar_community: ^3.3.2
 ```
 
 ```dart
 import 'package:duraq/duraq.dart';
 import 'package:duraq_isar/duraq_isar.dart';
+import 'package:isar_community/isar.dart';
 
 await Isar.initializeIsarCore(download: true);
 final isar = await Isar.open([

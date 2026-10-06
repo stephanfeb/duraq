@@ -94,12 +94,12 @@ Features:
 ### Isar Storage
 
 The Isar backend lives in a separate package, [`duraq_isar`](../duraq_isar), so
-that a project using only SQLite does not resolve `isar` and its generated code:
+that a project using only SQLite does not resolve `isar_community` and its generated code:
 
 ```yaml
 dependencies:
   duraq: ^3.0.0
-  duraq_isar: ^2.0.0
+  duraq_isar: ^3.0.0
 ```
 
 ```dart

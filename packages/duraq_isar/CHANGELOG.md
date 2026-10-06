@@ -1,6 +1,6 @@
 # Changelog
 
-## [3.0.0] - unreleased
+## [3.0.0] - 2026-10-06
 
 Moves from `isar` 3.1.0+1 to `isar_community` 3.3.2. The original `isar`
 package is unmaintained, and its Android native library is aligned to 4 KB
