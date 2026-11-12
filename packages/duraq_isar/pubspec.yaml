@@ -22,16 +22,3 @@ dev_dependencies:
   sqlite3: '>=2.2.0 <4.0.0'
   isar_community_generator: ^3.3.2
   build_runner: ^2.7.0
-
-# Development against the duraq in this repository rather than the published
-# one, so that a change to the shared StorageInterface is caught by this
-# package's tests before it is released rather than after. Consumers never see
-# this: pub honours overrides only in the root package.
-#
-# It is removed for publishing, and this package is run against the published
-# duraq once before each release — otherwise the only thing ever tested is the
-# working tree next door, which is not what anybody installs.
-dependency_overrides:
-  duraq:
-    path: ../duraq
-
